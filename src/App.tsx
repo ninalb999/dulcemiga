@@ -26,6 +26,9 @@ type AdminTab = 'catalogo' | 'rellenos' | 'carrusel' | 'footer';
 const ADMIN_EMAIL = 'admin@gmail.com';
 const ADMIN_PASSWORD = '12345678';
 const STORAGE_BUCKET = 'dulce-miga';
+const baseUrl = import.meta.env.BASE_URL;
+const normalizedBasePath = baseUrl.replace(/\/$/, '');
+const adminPath = `${normalizedBasePath}/admin`.replace(/\/+/g, '/');
 
 const defaultFillings: Filling[] = [
   {
@@ -195,6 +198,8 @@ const getTargetHref = (slide: CarouselSlide, footer: FooterConfig) => {
 };
 
 function App() {
+  const normalizedPathname = window.location.pathname.replace(/\/$/, '') || '/';
+  const isAdminRoute = normalizedPathname === adminPath;
   const [products, setProducts] = useState<Product[]>(defaultProducts);
   const [fillings, setFillings] = useState<Filling[]>(defaultFillings);
   const [slides, setSlides] = useState<CarouselSlide[]>(defaultSlides);
@@ -434,16 +439,16 @@ function App() {
     }
   };
 
-  if (location.hash === '#admin') {
+  if (isAdminRoute) {
     return (
       <main className="admin-page">
         <header className="site-header">
-          <a className="brand" href="#inicio">
+          <a className="brand" href={baseUrl}>
             <img src={logo} alt="Logo Dulce Miga" />
             <span>Dulce Miga Admin</span>
           </a>
           <nav>
-            <a href="#inicio">Vista publica</a>
+            <a href={baseUrl}>Vista publica</a>
             {adminAuthed && (
               <button className="text-button" onClick={logoutAdmin} type="button">
                 <LogOut size={16} /> Salir
@@ -704,7 +709,6 @@ function App() {
           <a href="#catalogo">Catalogo</a>
           <a href="#rellenos">Rellenos</a>
           <a href="#pedido">Pedido</a>
-          <a href="#admin">Admin</a>
         </nav>
       </header>
 
