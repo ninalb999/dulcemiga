@@ -195,6 +195,12 @@ const hasSupabaseSession = async () => {
   return Boolean(data.session);
 };
 
+const requireSupabaseSession = async () => {
+  if (!supabase) return false;
+  if (await hasSupabaseSession()) return true;
+  throw new Error('Inicia sesion con el usuario admin de Supabase para guardar cambios permanentes.');
+};
+
 const getTargetHref = (slide: CarouselSlide, footer: FooterConfig) => {
   if (slide.target_type === 'Producto') return productHref(slide.target_value);
   if (slide.target_type === 'Catalogo') return catalogHref;
@@ -378,7 +384,7 @@ function App() {
   };
 
   const uploadImage = async (file: File, folder: string) => {
-    if (!supabase || !(await hasSupabaseSession())) {
+    if (!supabase) {
       return new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result));
@@ -387,6 +393,7 @@ function App() {
       });
     }
 
+    await requireSupabaseSession();
     const path = `${folder}/${Date.now()}-${slug(file.name)}`;
     const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(path, file, {
       cacheControl: '3600',
@@ -434,12 +441,13 @@ function App() {
       setAdminAuthed(true);
       setLoginStatus('success');
     } catch (error) {
-      if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
-        setAdminAuthed(true);
-        setLoginStatus('success');
-        return;
-      }
-      setLoginError(error instanceof Error ? error.message : 'No se pudo iniciar sesion');
+      setLoginError(
+        supabase
+          ? 'No se pudo iniciar sesion en Supabase. Verifica que exista el usuario admin@gmail.com en Authentication.'
+          : error instanceof Error
+            ? error.message
+            : 'No se pudo iniciar sesion',
+      );
       setLoginStatus('error');
     }
   };
@@ -455,17 +463,37 @@ function App() {
     const next = products.some((item) => item.id === product.id)
       ? products.map((item) => (item.id === product.id ? product : item))
       : [...products, product];
-    setProducts(next);
-    saveLocal('dulce-miga-products', next);
-    if (supabase && (await hasSupabaseSession())) await supabase.from('products').upsert(product);
-    setProductForm(emptyProduct);
+    try {
+      if (supabase) {
+        await requireSupabaseSession();
+        const { error } = await supabase.from('products').upsert(product);
+        if (error) throw error;
+      } else {
+        saveLocal('dulce-miga-products', next);
+      }
+      setProducts(next);
+      setProductForm(emptyProduct);
+    } catch (error) {
+      console.error(error);
+      alert('No se guardo el producto en Supabase. Revisa la sesion del admin o las politicas de la base de datos.');
+    }
   };
 
   const deleteProduct = async (id: string) => {
     const next = products.filter((item) => item.id !== id);
-    setProducts(next);
-    saveLocal('dulce-miga-products', next);
-    if (supabase && (await hasSupabaseSession())) await supabase.from('products').delete().eq('id', id);
+    try {
+      if (supabase) {
+        await requireSupabaseSession();
+        const { error } = await supabase.from('products').delete().eq('id', id);
+        if (error) throw error;
+      } else {
+        saveLocal('dulce-miga-products', next);
+      }
+      setProducts(next);
+    } catch (error) {
+      console.error(error);
+      alert('No se elimino el producto en Supabase.');
+    }
   };
 
   const saveFilling = async (event: FormEvent<HTMLFormElement>) => {
@@ -474,17 +502,37 @@ function App() {
     const next = fillings.some((item) => item.id === filling.id)
       ? fillings.map((item) => (item.id === filling.id ? filling : item))
       : [...fillings, filling];
-    setFillings(next);
-    saveLocal('dulce-miga-fillings', next);
-    if (supabase && (await hasSupabaseSession())) await supabase.from('fillings').upsert(filling);
-    setFillingForm(emptyFilling);
+    try {
+      if (supabase) {
+        await requireSupabaseSession();
+        const { error } = await supabase.from('fillings').upsert(filling);
+        if (error) throw error;
+      } else {
+        saveLocal('dulce-miga-fillings', next);
+      }
+      setFillings(next);
+      setFillingForm(emptyFilling);
+    } catch (error) {
+      console.error(error);
+      alert('No se guardo el relleno en Supabase.');
+    }
   };
 
   const deleteFilling = async (id: string) => {
     const next = fillings.filter((item) => item.id !== id);
-    setFillings(next);
-    saveLocal('dulce-miga-fillings', next);
-    if (supabase && (await hasSupabaseSession())) await supabase.from('fillings').delete().eq('id', id);
+    try {
+      if (supabase) {
+        await requireSupabaseSession();
+        const { error } = await supabase.from('fillings').delete().eq('id', id);
+        if (error) throw error;
+      } else {
+        saveLocal('dulce-miga-fillings', next);
+      }
+      setFillings(next);
+    } catch (error) {
+      console.error(error);
+      alert('No se elimino el relleno en Supabase.');
+    }
   };
 
   const saveSlide = async (event: FormEvent<HTMLFormElement>) => {
@@ -493,24 +541,54 @@ function App() {
     const next = slides.some((item) => item.id === slide.id)
       ? slides.map((item) => (item.id === slide.id ? slide : item))
       : [...slides, slide];
-    setSlides(next);
-    saveLocal('dulce-miga-slides', next);
-    if (supabase && (await hasSupabaseSession())) await supabase.from('carousel_slides').upsert(slide);
-    setSlideForm(emptySlide);
+    try {
+      if (supabase) {
+        await requireSupabaseSession();
+        const { error } = await supabase.from('carousel_slides').upsert(slide);
+        if (error) throw error;
+      } else {
+        saveLocal('dulce-miga-slides', next);
+      }
+      setSlides(next);
+      setSlideForm(emptySlide);
+    } catch (error) {
+      console.error(error);
+      alert('No se guardo el carrusel en Supabase.');
+    }
   };
 
   const deleteSlide = async (id: string) => {
     const next = slides.filter((item) => item.id !== id);
-    setSlides(next);
-    saveLocal('dulce-miga-slides', next);
-    if (supabase && (await hasSupabaseSession())) await supabase.from('carousel_slides').delete().eq('id', id);
+    try {
+      if (supabase) {
+        await requireSupabaseSession();
+        const { error } = await supabase.from('carousel_slides').delete().eq('id', id);
+        if (error) throw error;
+      } else {
+        saveLocal('dulce-miga-slides', next);
+      }
+      setSlides(next);
+    } catch (error) {
+      console.error(error);
+      alert('No se elimino el carrusel en Supabase.');
+    }
   };
 
   const saveFooter = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    saveLocal('dulce-miga-footer', footer);
-    if (supabase && (await hasSupabaseSession())) await supabase.from('footer_config').upsert({ id: 'main', ...footer });
-    alert('Footer actualizado');
+    try {
+      if (supabase) {
+        await requireSupabaseSession();
+        const { error } = await supabase.from('footer_config').upsert({ id: 'main', ...footer });
+        if (error) throw error;
+      } else {
+        saveLocal('dulce-miga-footer', footer);
+      }
+      alert('Footer actualizado');
+    } catch (error) {
+      console.error(error);
+      alert('No se guardo el footer en Supabase.');
+    }
   };
 
   const submitOrder = async (event: FormEvent<HTMLFormElement>) => {
