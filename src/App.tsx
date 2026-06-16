@@ -21,14 +21,19 @@ import { isSupabaseConfigured, supabase } from './lib/supabase';
 import type { CarouselSlide, Filling, FooterConfig, OrderPayload, Product } from './types';
 
 type DataStatus = 'idle' | 'loading' | 'success' | 'error';
-type AdminTab = 'catalogo' | 'rellenos' | 'carrusel' | 'footer';
+type AdminTab = 'catalogo' | 'rellenos' | 'carrusel' | 'footer' | 'pedidos';
 
 const ADMIN_EMAIL = 'admin@gmail.com';
 const ADMIN_PASSWORD = '12345678';
 const STORAGE_BUCKET = 'dulce-miga';
+const WHATSAPP_NUMBER = '59160674708';
+const WHATSAPP_DISPLAY = '+591 60674708';
 const baseUrl = import.meta.env.BASE_URL;
 const normalizedBasePath = baseUrl.replace(/\/$/, '');
 const adminPath = `${normalizedBasePath}/admin`.replace(/\/+/g, '/');
+const catalogPath = `${normalizedBasePath}/catalogo`.replace(/\/+/g, '/');
+const catalogHref = `${baseUrl}catalogo`;
+const productHref = (id: string) => `${catalogHref}#producto-${id}`;
 
 const defaultFillings: Filling[] = [
   {
@@ -114,8 +119,8 @@ const defaultSlides: CarouselSlide[] = [
 const defaultFooter: FooterConfig = {
   brand_text: 'Dulce Miga acompana tus celebraciones con tortas clasicas, rellenos memorables y atencion personalizada.',
   address: 'Pedidos desde domicilio y entregas coordinadas',
-  phone: '+591 70000000',
-  whatsapp: '59170000000',
+  phone: WHATSAPP_DISPLAY,
+  whatsapp: WHATSAPP_NUMBER,
   facebook: 'https://facebook.com/',
   instagram: 'https://instagram.com/',
   tiktok: 'https://tiktok.com/',
@@ -159,7 +164,7 @@ const emptySlide: CarouselSlide = {
   subtitle: '',
   image_url: '',
   target_type: 'Catalogo',
-  target_value: '#catalogo',
+  target_value: catalogHref,
   is_active: true,
 };
 
@@ -191,15 +196,16 @@ const hasSupabaseSession = async () => {
 };
 
 const getTargetHref = (slide: CarouselSlide, footer: FooterConfig) => {
-  if (slide.target_type === 'Producto') return `#producto-${slide.target_value}`;
-  if (slide.target_type === 'Catalogo') return '#catalogo';
-  if (slide.target_type === 'WhatsApp') return `https://wa.me/${footer.whatsapp}`;
+  if (slide.target_type === 'Producto') return productHref(slide.target_value);
+  if (slide.target_type === 'Catalogo') return catalogHref;
+  if (slide.target_type === 'WhatsApp') return `https://wa.me/${footer.whatsapp || WHATSAPP_NUMBER}`;
   return slide.target_value || '#inicio';
 };
 
 function App() {
   const normalizedPathname = window.location.pathname.replace(/\/$/, '') || '/';
   const isAdminRoute = normalizedPathname === adminPath;
+  const isCatalogRoute = normalizedPathname === catalogPath;
   const [products, setProducts] = useState<Product[]>(defaultProducts);
   const [fillings, setFillings] = useState<Filling[]>(defaultFillings);
   const [slides, setSlides] = useState<CarouselSlide[]>(defaultSlides);
@@ -207,6 +213,11 @@ function App() {
   const [order, setOrder] = useState<OrderPayload>(initialOrder);
   const [orderStatus, setOrderStatus] = useState<DataStatus>('idle');
   const [orderStep, setOrderStep] = useState(0);
+  const [savedOrders, setSavedOrders] = useState<OrderPayload[]>([]);
+  const [catalogSearch, setCatalogSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('Todos');
+  const [fillingFilter, setFillingFilter] = useState('Todos');
+  const [maxPriceFilter, setMaxPriceFilter] = useState('Todos');
   const [adminAuthed, setAdminAuthed] = useState(false);
   const [loginStatus, setLoginStatus] = useState<DataStatus>('idle');
   const [loginError, setLoginError] = useState('');
@@ -222,6 +233,59 @@ function App() {
     ? fillings.filter((filling) => selectedProduct.filling_ids.includes(filling.id))
     : fillings;
   const orderSteps = ['Producto', 'Personalizacion', 'Entrega', 'Confirmacion'];
+  const categories = useMemo(
+    () => ['Todos', ...Array.from(new Set(products.map((product) => product.category).filter(Boolean)))],
+    [products],
+  );
+  const filteredProducts = useMemo(() => {
+    const query = catalogSearch.trim().toLowerCase();
+    const maxPrice = maxPriceFilter === 'Todos' ? Number.POSITIVE_INFINITY : Number(maxPriceFilter);
+
+    return products.filter((product) => {
+      const productFillings = fillings.filter((filling) => product.filling_ids.includes(filling.id));
+      const matchesSearch =
+        !query ||
+        product.name.toLowerCase().includes(query) ||
+        product.description.toLowerCase().includes(query) ||
+        product.category.toLowerCase().includes(query);
+      const matchesCategory = categoryFilter === 'Todos' || product.category === categoryFilter;
+      const matchesFilling = fillingFilter === 'Todos' || productFillings.some((filling) => filling.name === fillingFilter);
+      const matchesPrice = product.price <= maxPrice;
+      return matchesSearch && matchesCategory && matchesFilling && matchesPrice;
+    });
+  }, [catalogSearch, categoryFilter, fillingFilter, fillings, maxPriceFilter, products]);
+
+  const buildOrderForProduct = (product: Product) => {
+    const productFillings = fillings.filter((filling) => product.filling_ids.includes(filling.id));
+    return {
+      ...order,
+      product: product.name,
+      portions: product.portions,
+      filling: productFillings[0]?.name ?? fillings[0]?.name ?? '',
+    };
+  };
+
+  const storePendingProductOrder = (product: Product) => {
+    saveLocal('dulce-miga-pending-order', buildOrderForProduct(product));
+  };
+
+  const buildWhatsappUrl = (payload: OrderPayload) => {
+    const product = products.find((item) => item.name === payload.product);
+    const lines = [
+      'Hola Dulce Miga, quiero realizar una reserva con estos datos:',
+      `Cliente: ${payload.full_name || 'Sin nombre'}`,
+      `WhatsApp del cliente: ${payload.phone || 'Sin WhatsApp'}`,
+      `Producto: ${payload.product || 'Sin seleccionar'}`,
+      `Precio referencial: ${product ? `Bs. ${product.price}` : 'Por confirmar'}`,
+      `Relleno: ${payload.filling || 'Sin seleccionar'}`,
+      `Porciones: ${payload.portions || 'Sin definir'}`,
+      `Modalidad: ${payload.delivery_mode || 'Por coordinar'}`,
+      `Fecha requerida: ${payload.delivery_date || 'Por confirmar'}`,
+      `Detalles: ${payload.message || 'Sin detalle adicional'}`,
+    ];
+
+    return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(lines.join('\n'))}`;
+  };
 
   useEffect(() => {
     const loadData = async () => {
@@ -230,6 +294,7 @@ function App() {
         setFillings(readLocal('dulce-miga-fillings', defaultFillings));
         setSlides(readLocal('dulce-miga-slides', defaultSlides));
         setFooter(readLocal('dulce-miga-footer', defaultFooter));
+        setSavedOrders(readLocal('dulce-miga-orders', []));
         return;
       }
 
@@ -244,10 +309,29 @@ function App() {
       if (!fillingResult.error && fillingResult.data?.length) setFillings(fillingResult.data as Filling[]);
       if (!slideResult.error && slideResult.data?.length) setSlides(slideResult.data as CarouselSlide[]);
       if (!footerResult.error && footerResult.data) setFooter(footerResult.data as FooterConfig);
+      setSavedOrders(readLocal('dulce-miga-orders', []));
     };
 
     loadData().catch((error) => console.error(error));
   }, []);
+
+  useEffect(() => {
+    const pendingOrder = readLocal<OrderPayload | null>('dulce-miga-pending-order', null);
+    if (!pendingOrder?.product) return;
+    setOrder((current) => ({ ...current, ...pendingOrder }));
+    setOrderStep(1);
+    localStorage.removeItem('dulce-miga-pending-order');
+  }, []);
+
+  useEffect(() => {
+    const loadSavedOrders = async () => {
+      if (!adminAuthed || !supabase) return;
+      const { data, error } = await supabase.from('orders').select('*').order('created_at', { ascending: false });
+      if (!error && data) setSavedOrders(data as OrderPayload[]);
+    };
+
+    loadSavedOrders().catch((error) => console.error(error));
+  }, [adminAuthed]);
 
   useEffect(() => {
     if (!order.product && products[0]) {
@@ -260,16 +344,18 @@ function App() {
     }
   }, [fillings, order.product, products]);
 
-  const whatsappText = useMemo(() => {
-    const text = `Hola Dulce Miga, quiero cotizar:%0AProducto: ${order.product}%0ARelleno: ${order.filling}%0APorciones: ${order.portions}%0AFecha: ${order.delivery_date || 'por confirmar'}%0ADetalle: ${order.message || 'sin detalle adicional'}`;
-    return `https://wa.me/${footer.whatsapp}?text=${text}`;
-  }, [footer.whatsapp, order]);
+  const isOrderReady = () =>
+    Boolean(order.product && order.filling && order.portions && order.full_name && order.phone && order.delivery_date);
+
+  const updateOrder = (field: keyof OrderPayload, value: string) => {
+    setOrder((current) => ({ ...current, [field]: value }));
+  };
 
   const canGoNext = () => {
     if (orderStep === 0) return Boolean(order.product);
     if (orderStep === 1) return Boolean(order.filling && order.portions);
     if (orderStep === 2) return Boolean(order.full_name && order.phone && order.delivery_date);
-    return true;
+    return isOrderReady();
   };
 
   const nextOrderStep = () => {
@@ -279,6 +365,16 @@ function App() {
 
   const previousOrderStep = () => {
     setOrderStep((current) => Math.max(current - 1, 0));
+  };
+
+  const goToOrderStep = (index: number) => {
+    if (index <= orderStep) {
+      setOrderStep(index);
+      return;
+    }
+    if (index === orderStep + 1 && canGoNext()) {
+      setOrderStep(index);
+    }
   };
 
   const uploadImage = async (file: File, folder: string) => {
@@ -419,19 +515,38 @@ function App() {
 
   const submitOrder = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!canGoNext()) return;
+
+    const payload = { ...order };
+    const whatsappWindow = window.open('', '_blank', 'noopener,noreferrer');
     setOrderStatus('loading');
+
     try {
+      let savedInSupabase = false;
       if (supabase) {
-        const { error } = await supabase.from('orders').insert(order);
-        if (error) throw error;
-      } else {
-        const savedOrders = readLocal<OrderPayload[]>('dulce-miga-orders', []);
-        saveLocal('dulce-miga-orders', [...savedOrders, order]);
+        const { error } = await supabase.from('orders').insert(payload);
+        if (!error) savedInSupabase = true;
+        if (error) console.error(error);
       }
+
+      const localOrders = readLocal<OrderPayload[]>('dulce-miga-orders', []);
+      const nextOrders = [{ ...payload }, ...localOrders];
+      saveLocal('dulce-miga-orders', nextOrders);
+      setSavedOrders((current) => [{ ...payload }, ...current]);
       setOrderStatus('success');
-      setOrder(initialOrder);
+      if (!savedInSupabase && supabase) {
+        console.warn('Pedido guardado localmente porque Supabase no permitio la insercion.');
+      }
+
+      const whatsappUrl = buildWhatsappUrl(payload);
+      if (whatsappWindow) {
+        whatsappWindow.location.href = whatsappUrl;
+      } else {
+        window.location.href = whatsappUrl;
+      }
     } catch (error) {
       console.error(error);
+      if (whatsappWindow) whatsappWindow.close();
       setOrderStatus('error');
     }
   };
@@ -483,6 +598,7 @@ function App() {
                 ['rellenos', 'Rellenos'],
                 ['carrusel', 'Carrusel'],
                 ['footer', 'Footer y redes'],
+                ['pedidos', 'Pedidos'],
               ].map(([key, label]) => (
                 <button
                   className={activeTab === key ? 'active' : ''}
@@ -631,7 +747,7 @@ function App() {
                       <label>
                         Valor destino
                         <input
-                          placeholder={slideForm.target_type === 'WhatsApp' ? footer.whatsapp : '#catalogo o https://...'}
+                          placeholder={slideForm.target_type === 'WhatsApp' ? WHATSAPP_NUMBER : `${catalogHref} o https://...`}
                           value={slideForm.target_value}
                           onChange={(e) => setSlideForm({ ...slideForm, target_value: e.target.value })}
                         />
@@ -684,9 +800,152 @@ function App() {
                   </form>
                 </AdminPanel>
               )}
+
+              {activeTab === 'pedidos' && (
+                <AdminPanel title="Pedidos registrados" description="Solicitudes enviadas desde el flujo de reserva.">
+                  <CrudList>
+                    {savedOrders.length ? (
+                      savedOrders.map((item, index) => (
+                        <article key={`${item.phone}-${item.delivery_date}-${index}`}>
+                          <MessageCircle size={24} />
+                          <div>
+                            <strong>{item.product} - {item.full_name}</strong>
+                            <span>
+                              {item.phone} | {item.delivery_date || 'sin fecha'} | {item.delivery_mode}
+                            </span>
+                            <span>
+                              Relleno: {item.filling || 'sin definir'} | Porciones: {item.portions || 'sin definir'}
+                            </span>
+                            <span>{item.message || 'Sin detalles adicionales'}</span>
+                          </div>
+                        </article>
+                      ))
+                    ) : (
+                      <p className="empty-state">Todavia no hay pedidos registrados.</p>
+                    )}
+                  </CrudList>
+                </AdminPanel>
+              )}
             </div>
           </section>
         )}
+      </main>
+    );
+  }
+
+  if (isCatalogRoute) {
+    return (
+      <main>
+        <header className="site-header">
+          <a className="brand" href={baseUrl} aria-label="Inicio Dulce Miga">
+            <img src={logo} alt="Logo Dulce Miga" />
+            <span>Dulce Miga</span>
+          </a>
+          <nav aria-label="Navegacion principal">
+            <a href={baseUrl}>Inicio</a>
+            <a href={`${baseUrl}#rellenos`}>Rellenos</a>
+            <a href={`${baseUrl}#pedido`}>Realizar pedido</a>
+          </nav>
+        </header>
+
+        <section className="section catalog-page">
+          <div className="section-heading catalog-page-heading">
+            <div>
+              <p className="eyebrow">Catalogo completo</p>
+              <h1>Tortas y postres de Dulce Miga</h1>
+              <p>
+                Explora productos disponibles, filtra por tipo, relleno o precio y luego inicia
+                tu reserva para coordinarla por WhatsApp.
+              </p>
+            </div>
+            <a className="secondary-button" href={`${baseUrl}#pedido`}>
+              <Send size={18} /> Como pedir
+            </a>
+          </div>
+
+          <div className="catalog-filters" aria-label="Filtros del catalogo">
+            <label>
+              Buscar
+              <input
+                placeholder="Torta vintage, postre, minitorta..."
+                value={catalogSearch}
+                onChange={(event) => setCatalogSearch(event.target.value)}
+              />
+            </label>
+            <label>
+              Categoria
+              <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
+                {categories.map((category) => <option key={category}>{category}</option>)}
+              </select>
+            </label>
+            <label>
+              Relleno
+              <select value={fillingFilter} onChange={(event) => setFillingFilter(event.target.value)}>
+                <option>Todos</option>
+                {fillings.map((filling) => <option key={filling.id}>{filling.name}</option>)}
+              </select>
+            </label>
+            <label>
+              Precio maximo
+              <select value={maxPriceFilter} onChange={(event) => setMaxPriceFilter(event.target.value)}>
+                <option>Todos</option>
+                <option value="50">Hasta Bs. 50</option>
+                <option value="100">Hasta Bs. 100</option>
+                <option value="200">Hasta Bs. 200</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="product-grid catalog-grid catalog-route-grid">
+            {filteredProducts.length ? (
+              filteredProducts.map((product) => (
+                <article className="product-card catalog-card" id={`producto-${product.id}`} key={product.id}>
+                  <img src={product.image_url || logo} alt={product.name} />
+                  <div className="product-meta">
+                    <span>{product.category}</span>
+                    {product.is_featured && <small>Destacado</small>}
+                  </div>
+                  <h3>{product.name}</h3>
+                  <p>{product.description}</p>
+                  <div className="product-bottom">
+                    <strong>Bs. {product.price}</strong>
+                    <span>{product.portions}</span>
+                  </div>
+                  <div className="chips">
+                    {fillings
+                      .filter((filling) => product.filling_ids.includes(filling.id))
+                      .map((filling) => <span key={filling.id}>{filling.name}</span>)}
+                  </div>
+                  <a
+                    className="primary-button product-reserve-link"
+                    href={`${baseUrl}#pedido`}
+                    onClick={() => storePendingProductOrder(product)}
+                  >
+                    <Send size={17} /> Reservar este producto
+                  </a>
+                </article>
+              ))
+            ) : (
+              <p className="empty-state full-row">No hay productos que coincidan con los filtros seleccionados.</p>
+            )}
+          </div>
+        </section>
+
+        <footer>
+          <div>
+            <img src={logo} alt="" />
+            <p>{footer.brand_text}</p>
+          </div>
+          <p>{footer.address}</p>
+          <p>{footer.phone || WHATSAPP_DISPLAY}</p>
+          <div className="social-links">
+            <a href={footer.facebook} target="_blank" rel="noreferrer"><Facebook size={17} /> Facebook</a>
+            <a href={footer.instagram} target="_blank" rel="noreferrer"><Instagram size={17} /> Instagram</a>
+            <a href={footer.tiktok} target="_blank" rel="noreferrer"><Sparkles size={17} /> TikTok</a>
+            <a href={`https://wa.me/${footer.whatsapp || WHATSAPP_NUMBER}`} target="_blank" rel="noreferrer"><MessageCircle size={17} /> WhatsApp</a>
+          </div>
+          <small>{footer.copyright}</small>
+        </footer>
       </main>
     );
   }
@@ -699,7 +958,7 @@ function App() {
           <span>Dulce Miga</span>
         </a>
         <nav aria-label="Navegacion principal">
-          <a href="#catalogo">Catalogo</a>
+          <a href={catalogHref}>Catalogo</a>
           <a href="#rellenos">Rellenos</a>
           <a href="#pedido">Pedido</a>
         </nav>
@@ -715,7 +974,7 @@ function App() {
           </p>
           <div className="hero-actions">
             <a className="primary-button" href="#pedido"><Send size={18} /> Cotizar por WhatsApp</a>
-            <a className="secondary-button" href="#catalogo">Ver catalogo</a>
+            <a className="secondary-button" href={catalogHref}>Ver catalogo</a>
           </div>
         </div>
         <article className="carousel-card">
@@ -741,33 +1000,17 @@ function App() {
         ))}
       </section>
 
-      <section className="section" id="catalogo">
+      <section className="section catalog-entry" id="catalogo">
         <div className="section-heading">
-          <p className="eyebrow">Catalogo</p>
-          <h2>Tortas y postres disponibles</h2>
-          <p>Estos productos se administran desde el panel y se muestran automaticamente al publico.</p>
-        </div>
-        <div className="product-grid catalog-grid">
-          {products.map((product) => (
-            <article className="product-card catalog-card" id={`producto-${product.id}`} key={product.id}>
-              <img src={product.image_url || logo} alt={product.name} />
-              <div className="product-meta">
-                <span>{product.category}</span>
-                {product.is_featured && <small>Destacado</small>}
-              </div>
-              <h3>{product.name}</h3>
-              <p>{product.description}</p>
-              <div className="product-bottom">
-                <strong>Bs. {product.price}</strong>
-                <span>{product.portions}</span>
-              </div>
-              <div className="chips">
-                {fillings
-                  .filter((filling) => product.filling_ids.includes(filling.id))
-                  .map((filling) => <span key={filling.id}>{filling.name}</span>)}
-              </div>
-            </article>
-          ))}
+          <p className="eyebrow">Catalogo independiente</p>
+          <h2>Elige primero, reserva despues</h2>
+          <p>
+            El catalogo ahora esta en una ruta propia con filtros por categoria, relleno y precio
+            para que el cliente encuentre su torta antes de iniciar el pedido.
+          </p>
+          <a className="primary-button" href={catalogHref}>
+            <CakeSlice size={18} /> Abrir catalogo completo
+          </a>
         </div>
       </section>
 
@@ -806,7 +1049,17 @@ function App() {
         <div className="order-copy">
           <p className="eyebrow">Pedidos personalizados</p>
           <h2>Cotiza tu torta</h2>
-          <p>Selecciona producto, relleno y fecha. Dulce Miga confirma detalles por WhatsApp.</p>
+          <p>
+            Completa la reserva paso a paso. Al finalizar se guardan tus datos y se abre WhatsApp
+            con el resumen exacto del producto, relleno, fecha y detalles que escribiste.
+          </p>
+          <ol className="order-process-list">
+            <li>Selecciona el producto del catalogo.</li>
+            <li>Define relleno, porciones, decoracion y toppers.</li>
+            <li>Registra nombre, WhatsApp, fecha y modalidad.</li>
+            <li>Confirma y envia el pedido al WhatsApp de Dulce Miga.</li>
+          </ol>
+          <p className="whatsapp-contact">WhatsApp de pedidos: {footer.phone || WHATSAPP_DISPLAY}</p>
           <div className="supabase-note">Supabase: {isSupabaseConfigured ? 'conectado' : 'modo demo local'}</div>
         </div>
 
@@ -816,7 +1069,7 @@ function App() {
               <button
                 className={index === orderStep ? 'active' : index < orderStep ? 'done' : ''}
                 key={step}
-                onClick={() => setOrderStep(index)}
+                onClick={() => goToOrderStep(index)}
                 type="button"
               >
                 <span>{index < orderStep ? <Check size={16} /> : index + 1}</span>
@@ -838,12 +1091,12 @@ function App() {
                     key={product.id}
                     onClick={() => {
                       const productFillings = fillings.filter((filling) => product.filling_ids.includes(filling.id));
-                      setOrder({
-                        ...order,
+                      setOrder((current) => ({
+                        ...current,
                         product: product.name,
                         portions: product.portions,
                         filling: productFillings[0]?.name ?? fillings[0]?.name ?? '',
-                      });
+                      }));
                     }}
                     type="button"
                   >
@@ -865,19 +1118,24 @@ function App() {
               <div className="step-fields">
                 <label>
                   Relleno
-                  <select value={order.filling} onChange={(e) => setOrder({ ...order, filling: e.target.value })}>
+                  <select value={order.filling} onChange={(e) => updateOrder('filling', e.target.value)}>
                     {availableFillings.map((filling) => <option key={filling.id}>{filling.name}</option>)}
                   </select>
                 </label>
                 <label>
                   Porciones
-                  <input value={order.portions} onChange={(e) => setOrder({ ...order, portions: e.target.value })} />
+                  <input
+                    value={order.portions}
+                    onChange={(e) => updateOrder('portions', e.target.value)}
+                    onInput={(e) => updateOrder('portions', e.currentTarget.value)}
+                  />
                 </label>
                 <label className="full-row">
                   Decoracion, dedicatoria, toppers o alergias
                   <textarea
                     value={order.message}
-                    onChange={(e) => setOrder({ ...order, message: e.target.value })}
+                    onChange={(e) => updateOrder('message', e.target.value)}
+                    onInput={(e) => updateOrder('message', e.currentTarget.value)}
                     placeholder="Ej. decoracion vintage, topper de cumpleanos, frase corta, sin nueces."
                   />
                 </label>
@@ -894,15 +1152,25 @@ function App() {
               <div className="step-fields">
                 <label>
                   Nombre completo
-                  <input required value={order.full_name} onChange={(e) => setOrder({ ...order, full_name: e.target.value })} />
+                  <input
+                    required
+                    value={order.full_name}
+                    onChange={(e) => updateOrder('full_name', e.target.value)}
+                    onInput={(e) => updateOrder('full_name', e.currentTarget.value)}
+                  />
                 </label>
                 <label>
                   WhatsApp
-                  <input required value={order.phone} onChange={(e) => setOrder({ ...order, phone: e.target.value })} />
+                  <input
+                    required
+                    value={order.phone}
+                    onChange={(e) => updateOrder('phone', e.target.value)}
+                    onInput={(e) => updateOrder('phone', e.currentTarget.value)}
+                  />
                 </label>
                 <label>
                   Modalidad
-                  <select value={order.delivery_mode} onChange={(e) => setOrder({ ...order, delivery_mode: e.target.value })}>
+                  <select value={order.delivery_mode} onChange={(e) => updateOrder('delivery_mode', e.target.value)}>
                     <option>Delivery</option>
                     <option>Recojo en futuro local</option>
                     <option>Por coordinar</option>
@@ -910,7 +1178,12 @@ function App() {
                 </label>
                 <label>
                   Fecha
-                  <input type="date" value={order.delivery_date} onChange={(e) => setOrder({ ...order, delivery_date: e.target.value })} />
+                  <input
+                    type="date"
+                    value={order.delivery_date}
+                    onChange={(e) => updateOrder('delivery_date', e.target.value)}
+                    onInput={(e) => updateOrder('delivery_date', e.currentTarget.value)}
+                  />
                 </label>
               </div>
             </div>
@@ -931,6 +1204,9 @@ function App() {
                 <div><dt>Cliente</dt><dd>{order.full_name || 'Sin nombre'} - {order.phone || 'Sin WhatsApp'}</dd></div>
                 <div className="full-row"><dt>Detalles</dt><dd>{order.message || 'Sin detalle adicional'}</dd></div>
               </dl>
+              <p className="order-note">
+                Al presionar el boton final, estos mismos datos se registran y se envian a WhatsApp.
+              </p>
             </div>
           )}
 
@@ -944,17 +1220,14 @@ function App() {
               </button>
             ) : (
               <button className="primary-button" type="submit" disabled={orderStatus === 'loading'}>
-                <Send size={18} /> {orderStatus === 'loading' ? 'Enviando...' : 'Registrar reserva'}
+                <Send size={18} /> {orderStatus === 'loading' ? 'Enviando...' : 'Registrar y enviar por WhatsApp'}
               </button>
             )}
-            <a className="whatsapp-button" href={whatsappText} target="_blank" rel="noreferrer">
-              <MessageCircle size={18} /> WhatsApp
-            </a>
           </div>
           {!canGoNext() && orderStep < orderSteps.length - 1 && (
             <p className="form-status error">Completa los datos de este paso para continuar.</p>
           )}
-          {orderStatus === 'success' && <p className="form-status success">Reserva registrada correctamente.</p>}
+          {orderStatus === 'success' && <p className="form-status success">Reserva registrada. WhatsApp se abrio con tus datos reales.</p>}
           {orderStatus === 'error' && <p className="form-status error">No se pudo registrar. Intenta por WhatsApp.</p>}
         </form>
       </section>
@@ -965,11 +1238,12 @@ function App() {
           <p>{footer.brand_text}</p>
         </div>
         <p>{footer.address}</p>
+        <p>{footer.phone || WHATSAPP_DISPLAY}</p>
         <div className="social-links">
           <a href={footer.facebook} target="_blank" rel="noreferrer"><Facebook size={17} /> Facebook</a>
           <a href={footer.instagram} target="_blank" rel="noreferrer"><Instagram size={17} /> Instagram</a>
           <a href={footer.tiktok} target="_blank" rel="noreferrer"><Sparkles size={17} /> TikTok</a>
-          <a href={`https://wa.me/${footer.whatsapp}`} target="_blank" rel="noreferrer"><MessageCircle size={17} /> WhatsApp</a>
+          <a href={`https://wa.me/${footer.whatsapp || WHATSAPP_NUMBER}`} target="_blank" rel="noreferrer"><MessageCircle size={17} /> WhatsApp</a>
         </div>
         <small>{footer.copyright}</small>
       </footer>
