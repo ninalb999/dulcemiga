@@ -207,7 +207,7 @@ function App() {
   const [order, setOrder] = useState<OrderPayload>(initialOrder);
   const [orderStatus, setOrderStatus] = useState<DataStatus>('idle');
   const [orderStep, setOrderStep] = useState(0);
-  const [adminAuthed, setAdminAuthed] = useState(() => localStorage.getItem('dulce-miga-admin') === 'true');
+  const [adminAuthed, setAdminAuthed] = useState(false);
   const [loginStatus, setLoginStatus] = useState<DataStatus>('idle');
   const [loginError, setLoginError] = useState('');
   const [activeTab, setActiveTab] = useState<AdminTab>('catalogo');
@@ -335,12 +335,10 @@ function App() {
         throw new Error('Credenciales incorrectas');
       }
 
-      localStorage.setItem('dulce-miga-admin', 'true');
       setAdminAuthed(true);
       setLoginStatus('success');
     } catch (error) {
       if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
-        localStorage.setItem('dulce-miga-admin', 'true');
         setAdminAuthed(true);
         setLoginStatus('success');
         return;
@@ -352,7 +350,6 @@ function App() {
 
   const logoutAdmin = async () => {
     if (supabase) await supabase.auth.signOut();
-    localStorage.removeItem('dulce-miga-admin');
     setAdminAuthed(false);
   };
 
