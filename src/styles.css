@@ -429,6 +429,144 @@ h3 {
   padding: 22px;
 }
 
+.stepper-form {
+  align-content: start;
+}
+
+.reservation-stepper {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 8px;
+  border-radius: 8px;
+  background: rgba(111, 62, 32, 0.07);
+}
+
+.reservation-stepper button {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(61, 35, 21, 0.68);
+  cursor: pointer;
+  font-weight: 850;
+}
+
+.reservation-stepper span {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: rgba(111, 62, 32, 0.12);
+  color: var(--cocoa);
+}
+
+.reservation-stepper button.active {
+  border-color: rgba(111, 62, 32, 0.22);
+  background: #fffaf2;
+  color: var(--coffee);
+  box-shadow: 0 10px 22px rgba(61, 35, 21, 0.08);
+}
+
+.reservation-stepper button.active span,
+.reservation-stepper button.done span {
+  background: var(--cocoa);
+  color: white;
+}
+
+.step-panel {
+  display: grid;
+  gap: 18px;
+  min-height: 360px;
+}
+
+.step-title h3 {
+  margin-bottom: 0;
+  font-size: clamp(1.35rem, 2.6vw, 1.9rem);
+}
+
+.reserve-product-grid,
+.step-fields,
+.reservation-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.reserve-product-grid button {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(111, 62, 32, 0.16);
+  border-radius: 8px;
+  background: #fffaf2;
+  color: var(--coffee);
+  padding: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.reserve-product-grid button.selected {
+  border-color: var(--cocoa);
+  box-shadow: 0 0 0 3px rgba(111, 62, 32, 0.14);
+}
+
+.reserve-product-grid img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--cream);
+}
+
+.reserve-product-grid span {
+  color: rgba(36, 24, 18, 0.68);
+  font-size: 0.9rem;
+}
+
+.reservation-summary {
+  margin: 0;
+}
+
+.reservation-summary div {
+  border: 1px solid rgba(111, 62, 32, 0.14);
+  border-radius: 8px;
+  background: #fffaf2;
+  padding: 14px;
+}
+
+.reservation-summary dt {
+  margin-bottom: 4px;
+  color: var(--berry);
+  font-size: 0.78rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.reservation-summary dd {
+  margin: 0;
+  color: var(--coffee);
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.stepper-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.stepper-actions .primary-button:disabled,
+.stepper-actions .secondary-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 label {
   display: grid;
   gap: 8px;
@@ -718,12 +856,17 @@ footer small {
   .flow-grid,
   .order-form,
   .admin-form,
-  .admin-sidebar {
+  .admin-sidebar,
+  .reservation-stepper,
+  .reserve-product-grid,
+  .step-fields,
+  .reservation-summary {
     grid-template-columns: 1fr;
   }
 
   .flavor-band,
-  .form-actions {
+  .form-actions,
+  .stepper-actions {
     align-items: stretch;
     flex-direction: column;
   }

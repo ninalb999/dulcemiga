@@ -201,6 +201,7 @@ function App() {
   const [footer, setFooter] = useState<FooterConfig>(defaultFooter);
   const [order, setOrder] = useState<OrderPayload>(initialOrder);
   const [orderStatus, setOrderStatus] = useState<DataStatus>('idle');
+  const [orderStep, setOrderStep] = useState(0);
   const [adminAuthed, setAdminAuthed] = useState(() => localStorage.getItem('dulce-miga-admin') === 'true');
   const [loginStatus, setLoginStatus] = useState<DataStatus>('idle');
   const [loginError, setLoginError] = useState('');
@@ -211,6 +212,11 @@ function App() {
 
   const activeSlides = slides.filter((slide) => slide.is_active);
   const firstSlide = activeSlides[0] ?? defaultSlides[0];
+  const selectedProduct = products.find((product) => product.name === order.product);
+  const availableFillings = selectedProduct
+    ? fillings.filter((filling) => selectedProduct.filling_ids.includes(filling.id))
+    : fillings;
+  const orderSteps = ['Producto', 'Personalizacion', 'Entrega', 'Confirmacion'];
 
   useEffect(() => {
     const loadData = async () => {
@@ -253,6 +259,22 @@ function App() {
     const text = `Hola Dulce Miga, quiero cotizar:%0AProducto: ${order.product}%0ARelleno: ${order.filling}%0APorciones: ${order.portions}%0AFecha: ${order.delivery_date || 'por confirmar'}%0ADetalle: ${order.message || 'sin detalle adicional'}`;
     return `https://wa.me/${footer.whatsapp}?text=${text}`;
   }, [footer.whatsapp, order]);
+
+  const canGoNext = () => {
+    if (orderStep === 0) return Boolean(order.product);
+    if (orderStep === 1) return Boolean(order.filling && order.portions);
+    if (orderStep === 2) return Boolean(order.full_name && order.phone && order.delivery_date);
+    return true;
+  };
+
+  const nextOrderStep = () => {
+    if (!canGoNext()) return;
+    setOrderStep((current) => Math.min(current + 1, orderSteps.length - 1));
+  };
+
+  const previousOrderStep = () => {
+    setOrderStep((current) => Math.max(current - 1, 0));
+  };
 
   const uploadImage = async (file: File, folder: string) => {
     if (!supabase || !(await hasSupabaseSession())) {
@@ -791,62 +813,151 @@ function App() {
           <div className="supabase-note">Supabase: {isSupabaseConfigured ? 'conectado' : 'modo demo local'}</div>
         </div>
 
-        <form className="order-form" onSubmit={submitOrder}>
-          <label>
-            Nombre completo
-            <input required value={order.full_name} onChange={(e) => setOrder({ ...order, full_name: e.target.value })} />
-          </label>
-          <label>
-            WhatsApp
-            <input required value={order.phone} onChange={(e) => setOrder({ ...order, phone: e.target.value })} />
-          </label>
-          <label>
-            Producto
-            <select
-              value={order.product}
-              onChange={(e) => {
-                const selected = products.find((product) => product.name === e.target.value);
-                setOrder({ ...order, product: e.target.value, portions: selected?.portions ?? order.portions });
-              }}
-            >
-              {products.map((product) => <option key={product.id}>{product.name}</option>)}
-            </select>
-          </label>
-          <label>
-            Relleno
-            <select value={order.filling} onChange={(e) => setOrder({ ...order, filling: e.target.value })}>
-              {fillings.map((filling) => <option key={filling.id}>{filling.name}</option>)}
-            </select>
-          </label>
-          <label>
-            Porciones
-            <input value={order.portions} onChange={(e) => setOrder({ ...order, portions: e.target.value })} />
-          </label>
-          <label>
-            Modalidad
-            <select value={order.delivery_mode} onChange={(e) => setOrder({ ...order, delivery_mode: e.target.value })}>
-              <option>Delivery</option>
-              <option>Recojo en futuro local</option>
-              <option>Por coordinar</option>
-            </select>
-          </label>
-          <label>
-            Fecha
-            <input type="date" value={order.delivery_date} onChange={(e) => setOrder({ ...order, delivery_date: e.target.value })} />
-          </label>
-          <label className="full-row">
-            Decoracion, dedicatoria o alergias
-            <textarea value={order.message} onChange={(e) => setOrder({ ...order, message: e.target.value })} />
-          </label>
-          <div className="form-actions">
-            <button className="primary-button" type="submit" disabled={orderStatus === 'loading'}>
-              <Send size={18} /> {orderStatus === 'loading' ? 'Enviando...' : 'Registrar pedido'}
+        <form className="order-form stepper-form" onSubmit={submitOrder}>
+          <div className="reservation-stepper full-row" aria-label="Pasos de reserva">
+            {orderSteps.map((step, index) => (
+              <button
+                className={index === orderStep ? 'active' : index < orderStep ? 'done' : ''}
+                key={step}
+                onClick={() => setOrderStep(index)}
+                type="button"
+              >
+                <span>{index < orderStep ? <Check size={16} /> : index + 1}</span>
+                {step}
+              </button>
+            ))}
+          </div>
+
+          {orderStep === 0 && (
+            <div className="step-panel full-row">
+              <div className="step-title">
+                <p className="eyebrow">Paso 1</p>
+                <h3>Elige el producto para tu reserva</h3>
+              </div>
+              <div className="reserve-product-grid">
+                {products.map((product) => (
+                  <button
+                    className={order.product === product.name ? 'selected' : ''}
+                    key={product.id}
+                    onClick={() => {
+                      const productFillings = fillings.filter((filling) => product.filling_ids.includes(filling.id));
+                      setOrder({
+                        ...order,
+                        product: product.name,
+                        portions: product.portions,
+                        filling: productFillings[0]?.name ?? fillings[0]?.name ?? '',
+                      });
+                    }}
+                    type="button"
+                  >
+                    <img src={product.image_url || logo} alt="" />
+                    <strong>{product.name}</strong>
+                    <span>Bs. {product.price} - {product.portions}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {orderStep === 1 && (
+            <div className="step-panel full-row">
+              <div className="step-title">
+                <p className="eyebrow">Paso 2</p>
+                <h3>Personaliza sabor y detalles</h3>
+              </div>
+              <div className="step-fields">
+                <label>
+                  Relleno
+                  <select value={order.filling} onChange={(e) => setOrder({ ...order, filling: e.target.value })}>
+                    {availableFillings.map((filling) => <option key={filling.id}>{filling.name}</option>)}
+                  </select>
+                </label>
+                <label>
+                  Porciones
+                  <input value={order.portions} onChange={(e) => setOrder({ ...order, portions: e.target.value })} />
+                </label>
+                <label className="full-row">
+                  Decoracion, dedicatoria, toppers o alergias
+                  <textarea
+                    value={order.message}
+                    onChange={(e) => setOrder({ ...order, message: e.target.value })}
+                    placeholder="Ej. decoracion vintage, topper de cumpleanos, frase corta, sin nueces."
+                  />
+                </label>
+              </div>
+            </div>
+          )}
+
+          {orderStep === 2 && (
+            <div className="step-panel full-row">
+              <div className="step-title">
+                <p className="eyebrow">Paso 3</p>
+                <h3>Datos para coordinar la entrega</h3>
+              </div>
+              <div className="step-fields">
+                <label>
+                  Nombre completo
+                  <input required value={order.full_name} onChange={(e) => setOrder({ ...order, full_name: e.target.value })} />
+                </label>
+                <label>
+                  WhatsApp
+                  <input required value={order.phone} onChange={(e) => setOrder({ ...order, phone: e.target.value })} />
+                </label>
+                <label>
+                  Modalidad
+                  <select value={order.delivery_mode} onChange={(e) => setOrder({ ...order, delivery_mode: e.target.value })}>
+                    <option>Delivery</option>
+                    <option>Recojo en futuro local</option>
+                    <option>Por coordinar</option>
+                  </select>
+                </label>
+                <label>
+                  Fecha
+                  <input type="date" value={order.delivery_date} onChange={(e) => setOrder({ ...order, delivery_date: e.target.value })} />
+                </label>
+              </div>
+            </div>
+          )}
+
+          {orderStep === 3 && (
+            <div className="step-panel confirmation-panel full-row">
+              <div className="step-title">
+                <p className="eyebrow">Paso 4</p>
+                <h3>Confirma tu solicitud de reserva</h3>
+              </div>
+              <dl className="reservation-summary">
+                <div><dt>Producto</dt><dd>{order.product || 'Sin seleccionar'}</dd></div>
+                <div><dt>Relleno</dt><dd>{order.filling || 'Sin seleccionar'}</dd></div>
+                <div><dt>Porciones</dt><dd>{order.portions || 'Sin definir'}</dd></div>
+                <div><dt>Fecha</dt><dd>{order.delivery_date || 'Por confirmar'}</dd></div>
+                <div><dt>Modalidad</dt><dd>{order.delivery_mode}</dd></div>
+                <div><dt>Cliente</dt><dd>{order.full_name || 'Sin nombre'} - {order.phone || 'Sin WhatsApp'}</dd></div>
+                <div className="full-row"><dt>Detalles</dt><dd>{order.message || 'Sin detalle adicional'}</dd></div>
+              </dl>
+            </div>
+          )}
+
+          <div className="stepper-actions full-row">
+            <button className="secondary-button" disabled={orderStep === 0} onClick={previousOrderStep} type="button">
+              Atrás
             </button>
+            {orderStep < orderSteps.length - 1 ? (
+              <button className="primary-button" disabled={!canGoNext()} onClick={nextOrderStep} type="button">
+                Siguiente
+              </button>
+            ) : (
+              <button className="primary-button" type="submit" disabled={orderStatus === 'loading'}>
+                <Send size={18} /> {orderStatus === 'loading' ? 'Enviando...' : 'Registrar reserva'}
+              </button>
+            )}
             <a className="whatsapp-button" href={whatsappText} target="_blank" rel="noreferrer">
               <MessageCircle size={18} /> WhatsApp
             </a>
           </div>
-          {orderStatus === 'success' && <p className="form-status success">Pedido registrado correctamente.</p>}
+          {!canGoNext() && orderStep < orderSteps.length - 1 && (
+            <p className="form-status error">Completa los datos de este paso para continuar.</p>
+          )}
+          {orderStatus === 'success' && <p className="form-status success">Reserva registrada correctamente.</p>}
           {orderStatus === 'error' && <p className="form-status error">No se pudo registrar. Intenta por WhatsApp.</p>}
         </form>
       </section>
