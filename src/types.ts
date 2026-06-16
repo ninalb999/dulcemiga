@@ -1,3 +1,8 @@
+export type PortionPrice = {
+  label: string;
+  price: number;
+};
+
 export type Product = {
   id: string;
   name: string;
@@ -5,6 +10,7 @@ export type Product = {
   description: string;
   price: number;
   portions: string;
+  portion_options: PortionPrice[];
   image_url: string;
   filling_ids: string[];
   is_featured: boolean;
@@ -54,7 +60,9 @@ export type OrderPayload = {
   filling?: string;
   fillings: string[];
   dough: string;
+  doughs: string[];
   portions: string;
+  selected_price: number | null;
   delivery_mode: string;
   delivery_date: string;
   message: string;

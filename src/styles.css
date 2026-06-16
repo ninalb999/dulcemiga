@@ -310,13 +310,37 @@ h3 {
 
 .catalog-filters {
   display: grid;
-  grid-template-columns: minmax(220px, 1.4fr) repeat(3, minmax(160px, 1fr));
-  gap: 14px;
-  margin-bottom: 24px;
-  padding: 16px;
+  grid-template-columns: minmax(180px, 1.2fr) repeat(3, minmax(130px, 0.8fr));
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 12px;
   border: 1px solid rgba(111, 62, 32, 0.14);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.76);
+}
+
+.identity-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.identity-grid article {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.7);
+  padding: 18px;
+}
+
+.identity-grid h3 {
+  margin-bottom: 8px;
+  color: var(--cocoa);
+}
+
+.identity-grid p {
+  margin: 0;
+  color: rgba(36, 24, 18, 0.72);
+  line-height: 1.55;
 }
 
 .catalog-route-grid {
@@ -401,6 +425,16 @@ h3 {
   margin-top: auto;
   padding-top: 12px;
   color: var(--coffee);
+}
+
+.compact-select {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.compact-select select {
+  min-height: 42px;
 }
 
 .product-bottom strong {
@@ -914,6 +948,91 @@ footer small {
   box-shadow: none;
 }
 
+.admin-list-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 250, 242, 0.8);
+  padding: 14px;
+}
+
+.admin-list-actions p {
+  margin: 0;
+  color: rgba(36, 24, 18, 0.72);
+  font-weight: 750;
+}
+
+.portion-editor {
+  display: grid;
+  gap: 12px;
+  border: 1px solid rgba(111, 62, 32, 0.15);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.55);
+  padding: 14px;
+}
+
+.portion-editor > div:first-child,
+.portion-row {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+}
+
+.portion-editor > div:first-child {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.portion-row label {
+  flex: 1;
+}
+
+.small-button {
+  min-height: 38px;
+  padding: 9px 12px;
+}
+
+.icon-button {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffaf2;
+  color: var(--cocoa);
+  cursor: pointer;
+}
+
+.icon-button.danger {
+  color: #a33b2f;
+}
+
+.price-preview {
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  border: 1px solid rgba(111, 62, 32, 0.14);
+  border-radius: 8px;
+  background: #fffaf2;
+  padding: 12px;
+}
+
+.price-preview span {
+  color: rgba(61, 35, 21, 0.68);
+  font-size: 0.82rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.price-preview strong {
+  color: var(--cocoa);
+  font-size: 1.35rem;
+}
+
 .check-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -999,6 +1118,10 @@ footer small {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .identity-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .flow-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -1043,6 +1166,7 @@ footer small {
   .product-grid,
   .flow-grid,
   .catalog-filters,
+  .identity-grid,
   .order-form,
   .admin-form,
   .admin-sidebar,
@@ -1053,6 +1177,9 @@ footer small {
     grid-template-columns: 1fr;
   }
 
+  .admin-list-actions,
+  .portion-editor > div:first-child,
+  .portion-row,
   .flavor-band,
   .form-actions,
   .stepper-actions {

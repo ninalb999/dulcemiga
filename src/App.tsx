@@ -18,10 +18,11 @@ import {
 } from 'lucide-react';
 import logo from './assets/logo-dulce-miga.jpg';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
-import type { CarouselSlide, Dough, Filling, FooterConfig, OrderPayload, Product } from './types';
+import type { CarouselSlide, Dough, Filling, FooterConfig, OrderPayload, PortionPrice, Product } from './types';
 
 type DataStatus = 'idle' | 'loading' | 'success' | 'error';
 type AdminTab = 'catalogo' | 'rellenos' | 'masas' | 'carrusel' | 'footer' | 'pedidos';
+type AdminFormMode = 'product' | 'filling' | 'dough' | 'slide' | null;
 
 const ADMIN_EMAIL = 'admin@gmail.com';
 const ADMIN_PASSWORD = '12345678';
@@ -33,7 +34,18 @@ const normalizedBasePath = baseUrl.replace(/\/$/, '');
 const adminPath = `${normalizedBasePath}/admin`.replace(/\/+/g, '/');
 const catalogPath = `${normalizedBasePath}/catalogo`.replace(/\/+/g, '/');
 const catalogHref = `${baseUrl}catalogo`;
+const adminHref = `${baseUrl}admin`;
 const productHref = (id: string) => `${catalogHref}#producto-${id}`;
+const adminFormPath = (mode: Exclude<AdminFormMode, null>) => {
+  const suffix = {
+    product: null,
+    filling: 'rellenos/nuevo',
+    dough: 'masas/nuevo',
+    slide: 'carrusel/nuevo',
+  }[mode];
+  if (!suffix) return `${normalizedBasePath}/nuevo`.replace(/\/+/g, '/') || '/nuevo';
+  return `${adminPath}/${suffix}`.replace(/\/+/g, '/');
+};
 
 const defaultFillings: Filling[] = [
   {
@@ -88,6 +100,11 @@ const defaultProducts: Product[] = [
     description: 'Torta tradicional desde 20 porciones con decoracion vintage, dedicatoria y toppers.',
     price: 180,
     portions: '20 porciones',
+    portion_options: [
+      { label: '20 porciones', price: 180 },
+      { label: '25 porciones', price: 220 },
+      { label: '30 porciones', price: 260 },
+    ],
     image_url: logo,
     filling_ids: ['relleno-maracuya', 'relleno-chocolate'],
     is_featured: true,
@@ -99,6 +116,11 @@ const defaultProducts: Product[] = [
     description: 'Formato de 6 a 10 porciones para regalos, cumpleanos pequenos y reuniones intimas.',
     price: 85,
     portions: '6 a 10 porciones',
+    portion_options: [
+      { label: '6 porciones', price: 85 },
+      { label: '8 porciones', price: 105 },
+      { label: '10 porciones', price: 125 },
+    ],
     image_url: logo,
     filling_ids: ['relleno-maracuya', 'relleno-menta', 'relleno-chocolate'],
     is_featured: true,
@@ -110,6 +132,7 @@ const defaultProducts: Product[] = [
     description: 'Porciones dulces para antojos, meriendas y detalles personalizados.',
     price: 18,
     portions: '1 porcion',
+    portion_options: [{ label: '1 porcion', price: 18 }],
     image_url: logo,
     filling_ids: ['relleno-chocolate'],
     is_featured: false,
@@ -167,7 +190,9 @@ const initialOrder: OrderPayload = {
   filling: '',
   fillings: [],
   dough: '',
+  doughs: [],
   portions: '',
+  selected_price: null,
   delivery_mode: 'Delivery',
   delivery_date: '',
   message: '',
@@ -180,6 +205,7 @@ const emptyProduct: Product = {
   description: '',
   price: 0,
   portions: '',
+  portion_options: [{ label: '', price: 0 }],
   image_url: '',
   filling_ids: [],
   is_featured: false,
@@ -237,14 +263,53 @@ const getOrderFillings = (payload: Partial<OrderPayload>) => {
   return payload.filling.split(',').map((item) => item.trim()).filter(Boolean);
 };
 
+const getOrderDoughs = (payload: Partial<OrderPayload>) => {
+  if (payload.doughs?.length) return payload.doughs;
+  if (!payload.dough) return [];
+  return payload.dough.split(',').map((item) => item.trim()).filter(Boolean);
+};
+
+const getProductPortionOptions = (product: Product): PortionPrice[] => {
+  if (Array.isArray(product.portion_options) && product.portion_options.length) {
+    return product.portion_options.filter((option) => option.label.trim() && Number(option.price) >= 0);
+  }
+  if (product.portions) return [{ label: product.portions, price: Number(product.price) || 0 }];
+  return [{ label: 'Por definir', price: Number(product.price) || 0 }];
+};
+
+const getBaseProductPrice = (product: Product) => getProductPortionOptions(product)[0]?.price ?? product.price ?? 0;
+
+const cleanPortionOptions = (options: PortionPrice[], fallback: Product): PortionPrice[] => {
+  const cleaned = options
+    .map((option) => ({ label: option.label.trim(), price: Number(option.price) || 0 }))
+    .filter((option) => option.label);
+  return cleaned.length
+    ? cleaned
+    : [{ label: fallback.portions || 'Por definir', price: Number(fallback.price) || 0 }];
+};
+
+const normalizeProduct = (product: Product): Product => {
+  const portionOptions = cleanPortionOptions(product.portion_options ?? [], product);
+  return {
+    ...product,
+    portion_options: portionOptions,
+    portions: product.portions || portionOptions[0]?.label || '',
+    price: Number(product.price) || portionOptions[0]?.price || 0,
+    filling_ids: product.filling_ids ?? [],
+  };
+};
+
 const normalizeOrder = (payload: Partial<OrderPayload>): OrderPayload => {
   const fillings = getOrderFillings(payload);
+  const doughs = getOrderDoughs(payload);
   return {
     ...initialOrder,
     ...payload,
     fillings,
     filling: payload.filling ?? fillings.join(', '),
-    dough: payload.dough ?? '',
+    doughs,
+    dough: payload.dough ?? doughs.join(', '),
+    selected_price: payload.selected_price ?? null,
   };
 };
 
@@ -269,7 +334,17 @@ const getTargetHref = (slide: CarouselSlide, footer: FooterConfig) => {
 
 function App() {
   const normalizedPathname = window.location.pathname.replace(/\/$/, '') || '/';
-  const isAdminRoute = normalizedPathname === adminPath;
+  const routeFormMode: AdminFormMode =
+    normalizedPathname === adminFormPath('product')
+      ? 'product'
+      : normalizedPathname === adminFormPath('filling')
+        ? 'filling'
+        : normalizedPathname === adminFormPath('dough')
+          ? 'dough'
+          : normalizedPathname === adminFormPath('slide')
+            ? 'slide'
+            : null;
+  const isAdminRoute = normalizedPathname === adminPath || normalizedPathname.startsWith(`${adminPath}/`) || normalizedPathname === adminFormPath('product');
   const isCatalogRoute = normalizedPathname === catalogPath;
   const [products, setProducts] = useState<Product[]>(isSupabaseConfigured ? [] : defaultProducts);
   const [fillings, setFillings] = useState<Filling[]>(isSupabaseConfigured ? [] : defaultFillings);
@@ -284,10 +359,12 @@ function App() {
   const [categoryFilter, setCategoryFilter] = useState('Todos');
   const [fillingFilter, setFillingFilter] = useState('Todos');
   const [maxPriceFilter, setMaxPriceFilter] = useState('Todos');
+  const [selectedCatalogPortions, setSelectedCatalogPortions] = useState<Record<string, string>>({});
   const [adminAuthed, setAdminAuthed] = useState(false);
   const [loginStatus, setLoginStatus] = useState<DataStatus>('idle');
   const [loginError, setLoginError] = useState('');
   const [activeTab, setActiveTab] = useState<AdminTab>('catalogo');
+  const [adminFormMode, setAdminFormMode] = useState<AdminFormMode>(routeFormMode);
   const [productForm, setProductForm] = useState<Product>(emptyProduct);
   const [fillingForm, setFillingForm] = useState<Filling>(emptyFilling);
   const [doughForm, setDoughForm] = useState<Dough>(emptyDough);
@@ -306,6 +383,16 @@ function App() {
     ? fillings.filter((filling) => selectedProduct.filling_ids.includes(filling.id))
     : fillings;
   const orderSteps = ['Producto', 'Personalizacion', 'Entrega', 'Confirmacion'];
+  const displayedAdminTab: AdminTab =
+    adminFormMode === 'product'
+      ? 'catalogo'
+      : adminFormMode === 'filling'
+        ? 'rellenos'
+        : adminFormMode === 'dough'
+          ? 'masas'
+          : adminFormMode === 'slide'
+            ? 'carrusel'
+            : activeTab;
   const categories = useMemo(
     () => ['Todos', ...Array.from(new Set(products.map((product) => product.category).filter(Boolean)))],
     [products],
@@ -323,26 +410,33 @@ function App() {
         product.category.toLowerCase().includes(query);
       const matchesCategory = categoryFilter === 'Todos' || product.category === categoryFilter;
       const matchesFilling = fillingFilter === 'Todos' || productFillings.some((filling) => filling.name === fillingFilter);
-      const matchesPrice = product.price <= maxPrice;
+      const matchesPrice = Math.min(...getProductPortionOptions(product).map((option) => option.price)) <= maxPrice;
       return matchesSearch && matchesCategory && matchesFilling && matchesPrice;
     });
   }, [catalogSearch, categoryFilter, fillingFilter, fillings, maxPriceFilter, products]);
 
-  const buildOrderForProduct = (product: Product) => {
+  const getCatalogPortionOption = (product: Product) => {
+    const options = getProductPortionOptions(product);
+    return options.find((option) => option.label === selectedCatalogPortions[product.id]) ?? options[0];
+  };
+
+  const buildOrderForProduct = (product: Product, portionOption = getProductPortionOptions(product)[0]) => {
     const productFillings = fillings.filter((filling) => product.filling_ids.includes(filling.id));
     const selectedFillings = productFillings.slice(0, 1).map((filling) => filling.name);
     return {
       ...order,
       product: product.name,
-      portions: product.portions,
+      portions: portionOption?.label ?? product.portions,
+      selected_price: portionOption?.price ?? getBaseProductPrice(product),
       fillings: selectedFillings,
       filling: selectedFillings.join(', '),
-      dough: order.dough || doughs[0]?.name || '',
+      doughs: order.doughs.length ? order.doughs : doughs[0]?.name ? [doughs[0].name] : [],
+      dough: (order.doughs.length ? order.doughs : doughs[0]?.name ? [doughs[0].name] : []).join(', '),
     };
   };
 
-  const storePendingProductOrder = (product: Product) => {
-    saveLocal('dulce-miga-pending-order', buildOrderForProduct(product));
+  const storePendingProductOrder = (product: Product, portionOption = getProductPortionOptions(product)[0]) => {
+    saveLocal('dulce-miga-pending-order', buildOrderForProduct(product, portionOption));
   };
 
   const buildWhatsappUrl = (payload: OrderPayload) => {
@@ -352,8 +446,8 @@ function App() {
       `Cliente: ${payload.full_name || 'Sin nombre'}`,
       `WhatsApp del cliente: ${payload.phone || 'Sin WhatsApp'}`,
       `Producto: ${payload.product || 'Sin seleccionar'}`,
-      `Precio referencial: ${product ? `Bs. ${product.price}` : 'Por confirmar'}`,
-      `Masa: ${payload.dough || 'Sin seleccionar'}`,
+      `Precio referencial: ${payload.selected_price ? `Bs. ${payload.selected_price}` : product ? `Bs. ${getBaseProductPrice(product)}` : 'Por confirmar'}`,
+      `Masas: ${getOrderDoughs(payload).join(', ') || 'Sin seleccionar'}`,
       `Rellenos: ${getOrderFillings(payload).join(', ') || 'Sin seleccionar'}`,
       `Porciones: ${payload.portions || 'Sin definir'}`,
       `Modalidad: ${payload.delivery_mode || 'Por coordinar'}`,
@@ -368,7 +462,7 @@ function App() {
   useEffect(() => {
     const loadData = async () => {
       if (!supabase) {
-        setProducts(readLocal('dulce-miga-products', defaultProducts));
+        setProducts(readLocal('dulce-miga-products', defaultProducts).map(normalizeProduct));
         setFillings(readLocal('dulce-miga-fillings', defaultFillings));
         setDoughs(readLocal('dulce-miga-doughs', defaultDoughs));
         setSlides(readLocal('dulce-miga-slides', defaultSlides));
@@ -385,7 +479,7 @@ function App() {
         supabase.from('footer_config').select('*').limit(1).maybeSingle(),
       ]);
 
-      if (!productResult.error) setProducts((productResult.data ?? []) as Product[]);
+      if (!productResult.error) setProducts(((productResult.data ?? []) as Product[]).map(normalizeProduct));
       if (!fillingResult.error) setFillings((fillingResult.data ?? []) as Filling[]);
       if (!doughResult.error) setDoughs((doughResult.data ?? []) as Dough[]);
       if (!slideResult.error) setSlides((slideResult.data ?? []) as CarouselSlide[]);
@@ -416,19 +510,23 @@ function App() {
 
   useEffect(() => {
     if (!order.product && products[0]) {
+      const options = getProductPortionOptions(products[0]);
+      const firstDough = doughs[0]?.name ? [doughs[0].name] : [];
       setOrder((current) => ({
         ...current,
         product: products[0].name,
-        portions: products[0].portions,
+        portions: options[0]?.label ?? products[0].portions,
+        selected_price: options[0]?.price ?? getBaseProductPrice(products[0]),
         fillings: fillings[0]?.name ? [fillings[0].name] : [],
         filling: fillings[0]?.name ?? '',
-        dough: doughs[0]?.name ?? '',
+        doughs: firstDough,
+        dough: firstDough.join(', '),
       }));
     }
   }, [doughs, fillings, order.product, products]);
 
   const isOrderReady = () =>
-    Boolean(order.product && order.dough && order.fillings.length && order.portions && order.full_name && order.phone && order.delivery_date);
+    Boolean(order.product && order.doughs.length && order.fillings.length && order.portions && order.full_name && order.phone && order.delivery_date);
 
   const updateOrder = (field: keyof OrderPayload, value: string) => {
     setOrder((current) => ({ ...current, [field]: value }));
@@ -450,9 +548,25 @@ function App() {
     });
   };
 
+  const toggleOrderDough = (name: string) => {
+    setOrder((current) => {
+      const exists = current.doughs.includes(name);
+      const nextDoughs = exists
+        ? current.doughs.filter((item) => item !== name)
+        : current.doughs.length < 3
+          ? [...current.doughs, name]
+          : current.doughs;
+      return {
+        ...current,
+        doughs: nextDoughs,
+        dough: nextDoughs.join(', '),
+      };
+    });
+  };
+
   const canGoNext = () => {
     if (orderStep === 0) return Boolean(order.product);
-    if (orderStep === 1) return Boolean(order.dough && order.fillings.length && order.fillings.length <= 2 && order.portions);
+    if (orderStep === 1) return Boolean(order.doughs.length && order.doughs.length <= 3 && order.fillings.length && order.fillings.length <= 2 && order.portions);
     if (orderStep === 2) return Boolean(order.full_name && order.phone && order.delivery_date);
     return isOrderReady();
   };
@@ -550,9 +664,53 @@ function App() {
     setAdminAuthed(false);
   };
 
+  const openAdminForm = (mode: Exclude<AdminFormMode, null>, item?: Product | Filling | Dough | CarouselSlide) => {
+    if (mode === 'product') setProductForm(item ? normalizeProduct(item as Product) : emptyProduct);
+    if (mode === 'filling') setFillingForm(item ? (item as Filling) : emptyFilling);
+    if (mode === 'dough') setDoughForm(item ? (item as Dough) : emptyDough);
+    if (mode === 'slide') setSlideForm(item ? (item as CarouselSlide) : emptySlide);
+    setAdminFormMode(mode);
+    window.history.pushState(null, '', adminFormPath(mode));
+  };
+
+  const closeAdminForm = () => {
+    setAdminFormMode(null);
+    setProductForm(emptyProduct);
+    setFillingForm(emptyFilling);
+    setDoughForm(emptyDough);
+    setSlideForm(emptySlide);
+    window.history.pushState(null, '', adminHref);
+  };
+
+  const updatePortionOption = (index: number, field: keyof PortionPrice, value: string) => {
+    const next = [...productForm.portion_options];
+    next[index] = {
+      ...next[index],
+      [field]: field === 'price' ? Number(value) : value,
+    };
+    setProductForm({ ...productForm, portion_options: next });
+  };
+
+  const addPortionOption = () => {
+    setProductForm({ ...productForm, portion_options: [...productForm.portion_options, { label: '', price: 0 }] });
+  };
+
+  const removePortionOption = (index: number) => {
+    const next = productForm.portion_options.filter((_, optionIndex) => optionIndex !== index);
+    setProductForm({ ...productForm, portion_options: next.length ? next : [{ label: '', price: 0 }] });
+  };
+
   const saveProduct = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const product = { ...productForm, id: productForm.id || slug(productForm.name), image_url: productForm.image_url || logo };
+    const portionOptions = cleanPortionOptions(productForm.portion_options, productForm);
+    const product = normalizeProduct({
+      ...productForm,
+      id: productForm.id || slug(productForm.name),
+      image_url: productForm.image_url || logo,
+      portions: portionOptions[0]?.label || productForm.portions,
+      price: portionOptions[0]?.price ?? productForm.price,
+      portion_options: portionOptions,
+    });
     const next = products.some((item) => item.id === product.id)
       ? products.map((item) => (item.id === product.id ? product : item))
       : [...products, product];
@@ -565,7 +723,7 @@ function App() {
         saveLocal('dulce-miga-products', next);
       }
       setProducts(next);
-      setProductForm(emptyProduct);
+      closeAdminForm();
     } catch (error) {
       console.error(error);
       alert('No se guardo el producto en Supabase. Revisa la sesion del admin o las politicas de la base de datos.');
@@ -604,7 +762,7 @@ function App() {
         saveLocal('dulce-miga-fillings', next);
       }
       setFillings(next);
-      setFillingForm(emptyFilling);
+      closeAdminForm();
     } catch (error) {
       console.error(error);
       alert('No se guardo el relleno en Supabase.');
@@ -643,7 +801,7 @@ function App() {
         saveLocal('dulce-miga-doughs', next);
       }
       setDoughs(next);
-      setDoughForm(emptyDough);
+      closeAdminForm();
     } catch (error) {
       console.error(error);
       alert('No se guardo la masa en Supabase.');
@@ -682,7 +840,7 @@ function App() {
         saveLocal('dulce-miga-slides', next);
       }
       setSlides(next);
-      setSlideForm(emptySlide);
+      closeAdminForm();
     } catch (error) {
       console.error(error);
       alert('No se guardo el carrusel en Supabase.');
@@ -820,9 +978,13 @@ function App() {
                 ['pedidos', 'Pedidos'],
               ].map(([key, label]) => (
                 <button
-                  className={activeTab === key ? 'active' : ''}
+                  className={displayedAdminTab === key ? 'active' : ''}
                   key={key}
-                  onClick={() => setActiveTab(key as AdminTab)}
+                  onClick={() => {
+                    setActiveTab(key as AdminTab);
+                    setAdminFormMode(null);
+                    window.history.pushState(null, '', adminHref);
+                  }}
                   type="button"
                 >
                   {label}
@@ -831,8 +993,9 @@ function App() {
             </aside>
 
             <div className="admin-content">
-              {activeTab === 'catalogo' && (
-                <AdminPanel title="Catalogo de tortas y postres" description="CRUD de productos visibles en la pagina publica.">
+              {displayedAdminTab === 'catalogo' && (
+                <AdminPanel title="Catalogo de tortas y postres" description="Productos visibles en el catalogo publico.">
+                  {adminFormMode === 'product' ? (
                   <form className="admin-form" onSubmit={saveProduct}>
                     <label>
                       Nombre
@@ -842,14 +1005,38 @@ function App() {
                       Categoria
                       <input value={productForm.category} onChange={(e) => setProductForm({ ...productForm, category: e.target.value })} />
                     </label>
-                    <label>
-                      Precio Bs.
-                      <input type="number" value={productForm.price} onChange={(e) => setProductForm({ ...productForm, price: Number(e.target.value) })} />
-                    </label>
-                    <label>
-                      Porciones
-                      <input value={productForm.portions} onChange={(e) => setProductForm({ ...productForm, portions: e.target.value })} />
-                    </label>
+                    <div className="portion-editor full-row">
+                      <div>
+                        <strong>Porciones permitidas y precios</strong>
+                        <button className="secondary-button small-button" type="button" onClick={addPortionOption}>
+                          <Plus size={15} /> Agregar porcion
+                        </button>
+                      </div>
+                      {productForm.portion_options.map((option, index) => (
+                        <div className="portion-row" key={`${index}-${option.label}`}>
+                          <label>
+                            Porciones
+                            <input
+                              placeholder="Ej. 20 porciones"
+                              value={option.label}
+                              onChange={(e) => updatePortionOption(index, 'label', e.target.value)}
+                            />
+                          </label>
+                          <label>
+                            Precio Bs.
+                            <input
+                              min="0"
+                              type="number"
+                              value={option.price}
+                              onChange={(e) => updatePortionOption(index, 'price', e.target.value)}
+                            />
+                          </label>
+                          <button className="icon-button danger" type="button" onClick={() => removePortionOption(index)}>
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                     <label className="full-row">
                       Descripcion
                       <textarea value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} required />
@@ -883,27 +1070,40 @@ function App() {
                       <input checked={productForm.is_featured} type="checkbox" onChange={(e) => setProductForm({ ...productForm, is_featured: e.target.checked })} />
                       Producto destacado
                     </label>
-                    <button className="primary-button" type="submit"><Save size={17} /> Guardar producto</button>
+                    <div className="form-actions full-row">
+                      <button className="secondary-button" type="button" onClick={closeAdminForm}>Cancelar</button>
+                      <button className="primary-button" type="submit"><Save size={17} /> Guardar producto</button>
+                    </div>
                   </form>
-
+                  ) : (
+                  <>
+                    <div className="admin-list-actions">
+                      <p>Listado de productos creados. Usa el boton para abrir el formulario en una ruta independiente.</p>
+                      <button className="primary-button" type="button" onClick={() => openAdminForm('product')}>
+                        <Plus size={17} /> Crear nuevo
+                      </button>
+                    </div>
                   <CrudList>
                     {products.map((product) => (
                       <article key={product.id}>
                         <img src={product.image_url || logo} alt="" />
                         <div>
                           <strong>{product.name}</strong>
-                          <span>{product.category} - Bs. {product.price}</span>
+                          <span>{product.category} - desde Bs. {getBaseProductPrice(product)}</span>
                         </div>
-                        <button type="button" onClick={() => setProductForm(product)}><Edit3 size={16} /></button>
+                        <button type="button" onClick={() => openAdminForm('product', product)}><Edit3 size={16} /></button>
                         <button type="button" onClick={() => deleteProduct(product.id)}><Trash2 size={16} /></button>
                       </article>
                     ))}
                   </CrudList>
+                  </>
+                  )}
                 </AdminPanel>
               )}
 
-              {activeTab === 'rellenos' && (
+              {displayedAdminTab === 'rellenos' && (
                 <AdminPanel title="Rellenos" description="Administra sabores y descripciones incluidos en el precio de cada torta.">
+                  {adminFormMode === 'filling' ? (
                   <form className="admin-form" onSubmit={saveFilling}>
                     <label>
                       Nombre
@@ -917,8 +1117,19 @@ function App() {
                       Descripcion
                       <textarea value={fillingForm.description} onChange={(e) => setFillingForm({ ...fillingForm, description: e.target.value })} />
                     </label>
-                    <button className="primary-button" type="submit"><Save size={17} /> Guardar relleno</button>
+                    <div className="form-actions full-row">
+                      <button className="secondary-button" type="button" onClick={closeAdminForm}>Cancelar</button>
+                      <button className="primary-button" type="submit"><Save size={17} /> Guardar relleno</button>
+                    </div>
                   </form>
+                  ) : (
+                  <>
+                  <div className="admin-list-actions">
+                    <p>Listado de rellenos disponibles para seleccionar al hacer un pedido.</p>
+                    <button className="primary-button" type="button" onClick={() => openAdminForm('filling')}>
+                      <Plus size={17} /> Crear nuevo
+                    </button>
+                  </div>
                   <CrudList>
                     {fillings.map((filling) => (
                       <article key={filling.id}>
@@ -927,16 +1138,19 @@ function App() {
                           <strong>{filling.name}</strong>
                           <span>Incluido en el precio de la torta</span>
                         </div>
-                        <button type="button" onClick={() => setFillingForm(filling)}><Edit3 size={16} /></button>
+                        <button type="button" onClick={() => openAdminForm('filling', filling)}><Edit3 size={16} /></button>
                         <button type="button" onClick={() => deleteFilling(filling.id)}><Trash2 size={16} /></button>
                       </article>
                     ))}
                   </CrudList>
+                  </>
+                  )}
                 </AdminPanel>
               )}
 
-              {activeTab === 'masas' && (
+              {displayedAdminTab === 'masas' && (
                 <AdminPanel title="Masas" description="Administra los sabores de masa disponibles para cada pedido.">
+                  {adminFormMode === 'dough' ? (
                   <form className="admin-form" onSubmit={saveDough}>
                     <label>
                       Nombre
@@ -950,8 +1164,19 @@ function App() {
                       Descripcion
                       <textarea value={doughForm.description} onChange={(e) => setDoughForm({ ...doughForm, description: e.target.value })} />
                     </label>
-                    <button className="primary-button" type="submit"><Save size={17} /> Guardar masa</button>
+                    <div className="form-actions full-row">
+                      <button className="secondary-button" type="button" onClick={closeAdminForm}>Cancelar</button>
+                      <button className="primary-button" type="submit"><Save size={17} /> Guardar masa</button>
+                    </div>
                   </form>
+                  ) : (
+                  <>
+                  <div className="admin-list-actions">
+                    <p>Listado de masas disponibles para seleccionar al hacer un pedido.</p>
+                    <button className="primary-button" type="button" onClick={() => openAdminForm('dough')}>
+                      <Plus size={17} /> Crear nuevo
+                    </button>
+                  </div>
                   <CrudList>
                     {doughs.map((dough) => (
                       <article key={dough.id}>
@@ -960,16 +1185,19 @@ function App() {
                           <strong>{dough.name}</strong>
                           <span>{dough.description || 'Sin descripcion'}</span>
                         </div>
-                        <button type="button" onClick={() => setDoughForm(dough)}><Edit3 size={16} /></button>
+                        <button type="button" onClick={() => openAdminForm('dough', dough)}><Edit3 size={16} /></button>
                         <button type="button" onClick={() => deleteDough(dough.id)}><Trash2 size={16} /></button>
                       </article>
                     ))}
                   </CrudList>
+                  </>
+                  )}
                 </AdminPanel>
               )}
 
-              {activeTab === 'carrusel' && (
+              {displayedAdminTab === 'carrusel' && (
                 <AdminPanel title="Carrusel principal" description="Sube imagenes y define a donde dirige cada slide.">
+                  {adminFormMode === 'slide' ? (
                   <form className="admin-form" onSubmit={saveSlide}>
                     <label>
                       Titulo
@@ -1021,8 +1249,19 @@ function App() {
                       <input checked={slideForm.is_active} type="checkbox" onChange={(e) => setSlideForm({ ...slideForm, is_active: e.target.checked })} />
                       Visible
                     </label>
-                    <button className="primary-button" type="submit"><Upload size={17} /> Guardar slide</button>
+                    <div className="form-actions full-row">
+                      <button className="secondary-button" type="button" onClick={closeAdminForm}>Cancelar</button>
+                      <button className="primary-button" type="submit"><Upload size={17} /> Guardar slide</button>
+                    </div>
                   </form>
+                  ) : (
+                  <>
+                  <div className="admin-list-actions">
+                    <p>Listado de slides del carrusel principal.</p>
+                    <button className="primary-button" type="button" onClick={() => openAdminForm('slide')}>
+                      <Plus size={17} /> Crear nuevo
+                    </button>
+                  </div>
                   <CrudList>
                     {slides.map((slide) => (
                       <article key={slide.id}>
@@ -1031,15 +1270,17 @@ function App() {
                           <strong>{slide.title}</strong>
                           <span>{slide.target_type}: {slide.target_value || 'sin destino'}</span>
                         </div>
-                        <button type="button" onClick={() => setSlideForm(slide)}><Edit3 size={16} /></button>
+                        <button type="button" onClick={() => openAdminForm('slide', slide)}><Edit3 size={16} /></button>
                         <button type="button" onClick={() => deleteSlide(slide.id)}><Trash2 size={16} /></button>
                       </article>
                     ))}
                   </CrudList>
+                  </>
+                  )}
                 </AdminPanel>
               )}
 
-              {activeTab === 'footer' && (
+              {displayedAdminTab === 'footer' && (
                 <AdminPanel title="Footer y redes sociales" description="Personaliza datos de contacto y enlaces visibles al publico.">
                   <form className="admin-form" onSubmit={saveFooter}>
                     {Object.entries(footer).map(([key, value]) => (
@@ -1053,7 +1294,7 @@ function App() {
                 </AdminPanel>
               )}
 
-              {activeTab === 'pedidos' && (
+              {displayedAdminTab === 'pedidos' && (
                 <AdminPanel title="Pedidos registrados" description="Solicitudes enviadas desde el flujo de reserva.">
                   <CrudList>
                     {savedOrders.length ? (
@@ -1066,7 +1307,7 @@ function App() {
                               {item.phone} | {item.delivery_date || 'sin fecha'} | {item.delivery_mode}
                             </span>
                             <span>
-                              Masa: {item.dough || 'sin definir'} | Rellenos: {getOrderFillings(item).join(', ') || 'sin definir'} | Porciones: {item.portions || 'sin definir'}
+                              Masas: {getOrderDoughs(item).join(', ') || 'sin definir'} | Rellenos: {getOrderFillings(item).join(', ') || 'sin definir'} | Porciones: {item.portions || 'sin definir'} | Bs. {item.selected_price ?? 'por confirmar'}
                             </span>
                             <span>{item.message || 'Sin detalles adicionales'}</span>
                           </div>
@@ -1095,8 +1336,8 @@ function App() {
           </a>
           <nav aria-label="Navegacion principal">
             <a href={baseUrl}>Inicio</a>
-            <a href={`${baseUrl}#rellenos`}>Rellenos</a>
-            <a href={`${baseUrl}#pedido`}>Realizar pedido</a>
+            <a href={catalogHref}>Catalogo</a>
+            <a href={`${baseUrl}#pedido`}>Pedido</a>
           </nav>
         </header>
 
@@ -1150,33 +1391,50 @@ function App() {
 
           <div className="product-grid catalog-grid catalog-route-grid">
             {filteredProducts.length ? (
-              filteredProducts.map((product) => (
-                <article className="product-card catalog-card" id={`producto-${product.id}`} key={product.id}>
-                  <img src={product.image_url || logo} alt={product.name} />
-                  <div className="product-meta">
-                    <span>{product.category}</span>
-                    {product.is_featured && <small>Destacado</small>}
-                  </div>
-                  <h3>{product.name}</h3>
-                  <p>{product.description}</p>
-                  <div className="product-bottom">
-                    <strong>Bs. {product.price}</strong>
-                    <span>{product.portions}</span>
-                  </div>
-                  <div className="chips">
-                    {fillings
-                      .filter((filling) => product.filling_ids.includes(filling.id))
-                      .map((filling) => <span key={filling.id}>{filling.name}</span>)}
-                  </div>
-                  <a
-                    className="primary-button product-reserve-link"
-                    href={`${baseUrl}#pedido`}
-                    onClick={() => storePendingProductOrder(product)}
-                  >
-                    <Send size={17} /> Reservar este producto
-                  </a>
-                </article>
-              ))
+              filteredProducts.map((product) => {
+                const portionOptions = getProductPortionOptions(product);
+                const selectedOption = getCatalogPortionOption(product);
+                return (
+                  <article className="product-card catalog-card" id={`producto-${product.id}`} key={product.id}>
+                    <img src={product.image_url || logo} alt={product.name} />
+                    <div className="product-meta">
+                      <span>{product.category}</span>
+                      {product.is_featured && <small>Destacado</small>}
+                    </div>
+                    <h3>{product.name}</h3>
+                    <p>{product.description}</p>
+                    <label className="compact-select">
+                      Porciones
+                      <select
+                        value={selectedOption?.label ?? ''}
+                        onChange={(event) => setSelectedCatalogPortions((current) => ({ ...current, [product.id]: event.target.value }))}
+                      >
+                        {portionOptions.map((option) => (
+                          <option key={`${product.id}-${option.label}`} value={option.label}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="product-bottom">
+                      <strong>Bs. {selectedOption?.price ?? getBaseProductPrice(product)}</strong>
+                      <span>{selectedOption?.label ?? product.portions}</span>
+                    </div>
+                    <div className="chips">
+                      {fillings
+                        .filter((filling) => product.filling_ids.includes(filling.id))
+                        .map((filling) => <span key={filling.id}>{filling.name}</span>)}
+                    </div>
+                    <a
+                      className="primary-button product-reserve-link"
+                      href={`${baseUrl}#pedido`}
+                      onClick={() => storePendingProductOrder(product, selectedOption)}
+                    >
+                      <Send size={17} /> Reservar este producto
+                    </a>
+                  </article>
+                );
+              })
             ) : (
               <p className="empty-state full-row">
                 {products.length
@@ -1217,8 +1475,8 @@ function App() {
           <span>Dulce Miga</span>
         </a>
         <nav aria-label="Navegacion principal">
+          <a href="#inicio">Inicio</a>
           <a href={catalogHref}>Catalogo</a>
-          <a href="#rellenos">Rellenos</a>
           <a href="#pedido">Pedido</a>
         </nav>
       </header>
@@ -1269,6 +1527,35 @@ function App() {
         </section>
       )}
 
+      <section className="section identity-section" aria-label="Identidad de Dulce Miga">
+        <div className="section-heading">
+          <p className="eyebrow">Inicio</p>
+          <h2>Identidad estrategica de Dulce Miga</h2>
+          <p>
+            Dulce Miga es una microempresa de pasteleria tradicional enfocada en pedidos personalizados,
+            atencion cercana y crecimiento digital para llegar a nuevos clientes.
+          </p>
+        </div>
+        <div className="identity-grid">
+          <article>
+            <h3>Mision</h3>
+            <p>Elaborar tortas y postres personalizados con sabor casero, presentacion cuidada y una atencion calida en cada pedido.</p>
+          </article>
+          <article>
+            <h3>Vision</h3>
+            <p>Consolidarse como una pasteleria reconocida por tortas clasicas, decoracion vintage y un servicio digital confiable.</p>
+          </article>
+          <article>
+            <h3>Objetivos</h3>
+            <p>Ampliar el catalogo, organizar los pedidos desde canales digitales y preparar la expansion futura hacia un punto de recojo o local.</p>
+          </article>
+          <article>
+            <h3>Valores</h3>
+            <p>Responsabilidad, confianza, creatividad, higiene, puntualidad y trato personalizado con cada cliente.</p>
+          </article>
+        </div>
+      </section>
+
       <section className="section catalog-entry" id="catalogo">
         <div className="section-heading">
           <p className="eyebrow">Catalogo independiente</p>
@@ -1280,37 +1567,6 @@ function App() {
           <a className="primary-button" href={catalogHref}>
             <CakeSlice size={18} /> Abrir catalogo completo
           </a>
-        </div>
-      </section>
-
-      <section className="flavor-band" id="rellenos">
-        <div>
-          <p className="eyebrow">Rellenos y masas</p>
-          <h2>Sabores que hacen memorable cada torta</h2>
-        </div>
-        <div className="flavor-groups">
-          <div className="flavor-list">
-            {fillings.length ? (
-              fillings.map((filling) => (
-                <span key={filling.id} style={{ background: filling.color }}>
-                  Relleno {filling.name}
-                </span>
-              ))
-            ) : (
-              <p className="empty-state">Aun no hay rellenos cargados.</p>
-            )}
-          </div>
-          <div className="flavor-list">
-            {doughs.length ? (
-              doughs.map((dough) => (
-                <span key={dough.id} style={{ background: dough.color }}>
-                  Masa {dough.name}
-                </span>
-              ))
-            ) : (
-              <p className="empty-state">Aun no hay masas cargadas.</p>
-            )}
-          </div>
         </div>
       </section>
 
@@ -1371,29 +1627,35 @@ function App() {
               </div>
               <div className="reserve-product-grid">
                 {products.length ? (
-                  products.map((product) => (
-                    <button
-                      className={order.product === product.name ? 'selected' : ''}
-                      key={product.id}
-                      onClick={() => {
-                        const productFillings = fillings.filter((filling) => product.filling_ids.includes(filling.id));
-                        const selectedFillings = productFillings.slice(0, 1).map((filling) => filling.name);
-                        setOrder((current) => ({
-                          ...current,
-                          product: product.name,
-                          portions: product.portions,
-                          fillings: selectedFillings,
-                          filling: selectedFillings.join(', '),
-                          dough: current.dough || doughs[0]?.name || '',
-                        }));
-                      }}
-                      type="button"
-                    >
-                      <img src={product.image_url || logo} alt="" />
-                      <strong>{product.name}</strong>
-                      <span>Bs. {product.price} - {product.portions}</span>
-                    </button>
-                  ))
+                  products.map((product) => {
+                    const options = getProductPortionOptions(product);
+                    return (
+                      <button
+                        className={order.product === product.name ? 'selected' : ''}
+                        key={product.id}
+                        onClick={() => {
+                          const productFillings = fillings.filter((filling) => product.filling_ids.includes(filling.id));
+                          const selectedFillings = productFillings.slice(0, 1).map((filling) => filling.name);
+                          const selectedDoughs = order.doughs.length ? order.doughs : doughs[0]?.name ? [doughs[0].name] : [];
+                          setOrder((current) => ({
+                            ...current,
+                            product: product.name,
+                            portions: options[0]?.label ?? product.portions,
+                            selected_price: options[0]?.price ?? getBaseProductPrice(product),
+                            fillings: selectedFillings,
+                            filling: selectedFillings.join(', '),
+                            doughs: selectedDoughs,
+                            dough: selectedDoughs.join(', '),
+                          }));
+                        }}
+                        type="button"
+                      >
+                        <img src={product.image_url || logo} alt="" />
+                        <strong>{product.name}</strong>
+                        <span>Desde Bs. {getBaseProductPrice(product)} - {options.map((option) => option.label).join(', ')}</span>
+                      </button>
+                    );
+                  })
                 ) : (
                   <p className="empty-state full-row">Aun no hay productos cargados desde admin.</p>
                 )}
@@ -1409,20 +1671,50 @@ function App() {
               </div>
               <div className="step-fields">
                 <label>
-                  Sabor de la masa
-                  <select value={order.dough} onChange={(e) => updateOrder('dough', e.target.value)}>
-                    <option value="">Seleccionar masa</option>
-                    {doughs.map((dough) => <option key={dough.id}>{dough.name}</option>)}
+                  Porciones
+                  <select
+                    value={order.portions}
+                    onChange={(e) => {
+                      const option = selectedProduct ? getProductPortionOptions(selectedProduct).find((item) => item.label === e.target.value) : null;
+                      setOrder((current) => ({
+                        ...current,
+                        portions: e.target.value,
+                        selected_price: option?.price ?? current.selected_price,
+                      }));
+                    }}
+                  >
+                    <option value="">Seleccionar porciones</option>
+                    {selectedProduct && getProductPortionOptions(selectedProduct).map((option) => (
+                      <option key={option.label} value={option.label}>{option.label} - Bs. {option.price}</option>
+                    ))}
                   </select>
                 </label>
-                <label>
-                  Porciones
-                  <input
-                    value={order.portions}
-                    onChange={(e) => updateOrder('portions', e.target.value)}
-                    onInput={(e) => updateOrder('portions', e.currentTarget.value)}
-                  />
-                </label>
+                <div className="price-preview">
+                  <span>Precio referencial</span>
+                  <strong>Bs. {order.selected_price ?? (selectedProduct ? getBaseProductPrice(selectedProduct) : 0)}</strong>
+                </div>
+                <div className="full-row checkbox-field">
+                  <span>Sabores de masa (elige hasta 3)</span>
+                  <div className="check-grid flavor-check-grid">
+                    {doughs.map((dough) => {
+                      const checked = order.doughs.includes(dough.name);
+                      const disabled = !checked && order.doughs.length >= 3;
+                      return (
+                        <label key={dough.id}>
+                          <input
+                            checked={checked}
+                            disabled={disabled}
+                            type="checkbox"
+                            onChange={() => toggleOrderDough(dough.name)}
+                          />
+                          <span className="color-dot" style={{ background: dough.color }} />
+                          {dough.name}
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <small>{order.doughs.length}/3 masas seleccionadas</small>
+                </div>
                 <div className="full-row checkbox-field">
                   <span>Rellenos incluidos (elige hasta 2)</span>
                   <div className="check-grid flavor-check-grid">
@@ -1512,9 +1804,10 @@ function App() {
               </div>
               <dl className="reservation-summary">
                 <div><dt>Producto</dt><dd>{order.product || 'Sin seleccionar'}</dd></div>
-                <div><dt>Masa</dt><dd>{order.dough || 'Sin seleccionar'}</dd></div>
+                <div><dt>Masas</dt><dd>{order.doughs.join(', ') || 'Sin seleccionar'}</dd></div>
                 <div><dt>Rellenos</dt><dd>{order.fillings.join(', ') || 'Sin seleccionar'}</dd></div>
                 <div><dt>Porciones</dt><dd>{order.portions || 'Sin definir'}</dd></div>
+                <div><dt>Precio referencial</dt><dd>Bs. {order.selected_price ?? (selectedProduct ? getBaseProductPrice(selectedProduct) : 0)}</dd></div>
                 <div><dt>Fecha</dt><dd>{order.delivery_date || 'Por confirmar'}</dd></div>
                 <div><dt>Modalidad</dt><dd>{order.delivery_mode}</dd></div>
                 <div><dt>Cliente</dt><dd>{order.full_name || 'Sin nombre'} - {order.phone || 'Sin WhatsApp'}</dd></div>
