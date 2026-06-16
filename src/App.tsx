@@ -42,7 +42,7 @@ const defaultFillings: Filling[] = [
     id: 'relleno-menta',
     name: 'Menta',
     description: 'Toque refrescante para tortas clasicas con perfil moderno.',
-    extra_price: 5,
+    extra_price: 0,
     color: '#82b99a',
   },
   {
@@ -377,7 +377,7 @@ function App() {
 
   const saveFilling = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const filling = { ...fillingForm, id: fillingForm.id || slug(fillingForm.name) };
+    const filling = { ...fillingForm, id: fillingForm.id || slug(fillingForm.name), extra_price: 0 };
     const next = fillings.some((item) => item.id === filling.id)
       ? fillings.map((item) => (item.id === filling.id ? filling : item))
       : [...fillings, filling];
@@ -571,15 +571,11 @@ function App() {
               )}
 
               {activeTab === 'rellenos' && (
-                <AdminPanel title="Rellenos" description="Administra sabores, descripciones y recargos.">
+                <AdminPanel title="Rellenos" description="Administra sabores y descripciones incluidos en el precio de cada torta.">
                   <form className="admin-form" onSubmit={saveFilling}>
                     <label>
                       Nombre
                       <input value={fillingForm.name} onChange={(e) => setFillingForm({ ...fillingForm, name: e.target.value })} required />
-                    </label>
-                    <label>
-                      Recargo Bs.
-                      <input type="number" value={fillingForm.extra_price} onChange={(e) => setFillingForm({ ...fillingForm, extra_price: Number(e.target.value) })} />
                     </label>
                     <label>
                       Color
@@ -597,7 +593,7 @@ function App() {
                         <span className="color-dot" style={{ background: filling.color }} />
                         <div>
                           <strong>{filling.name}</strong>
-                          <span>Recargo: Bs. {filling.extra_price}</span>
+                          <span>Incluido en el precio de la torta</span>
                         </div>
                         <button type="button" onClick={() => setFillingForm(filling)}><Edit3 size={16} /></button>
                         <button type="button" onClick={() => deleteFilling(filling.id)}><Trash2 size={16} /></button>
