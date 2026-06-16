@@ -1,6 +1,6 @@
 # Dulce Miga Web
 
-Sitio de portafolio para Dulce Miga, una microempresa de tortas tradicionales personalizadas. Incluye catalogo, propuesta de servicio, formulario de pedidos y preparacion para Supabase.
+Sitio web responsive para Dulce Miga, una microempresa de pasteleria artesanal. Incluye vista publica de pasteleria, catalogo dinamico, rellenos, carrusel, formulario de pedidos y panel administrativo.
 
 ## Ejecutar localmente
 
@@ -13,14 +13,38 @@ npm run dev
 
 1. Crea un proyecto en Supabase.
 2. Ejecuta el SQL de `supabase/schema.sql` en el SQL Editor.
-3. Copia `.env.example` como `.env` y agrega:
+3. Crea en Supabase Auth el usuario administrador:
+
+```text
+admin@gmail.com
+12345678
+```
+
+4. Copia `.env.example` como `.env` y agrega:
 
 ```bash
 VITE_SUPABASE_URL=https://tu-proyecto.supabase.co
 VITE_SUPABASE_ANON_KEY=tu-clave-publica
 ```
 
-El formulario registra pedidos en `public.orders`. Las tablas tienen RLS activado y solo permiten inserciones publicas desde el cliente.
+El sitio lee publicamente `products`, `fillings`, `carousel_slides` y `footer_config`. El admin autenticado puede hacer CRUD y subir imagenes al bucket publico `dulce-miga`.
+
+## Panel administrativo
+
+Ruta local o publica:
+
+```text
+#admin
+```
+
+Modulos disponibles:
+
+- Catalogo de tortas y postres: nombre, categoria, precio, porciones, imagen, rellenos y destacado.
+- Rellenos: nombre, descripcion, recargo y color.
+- Carrusel: imagen, texto y direccionamiento por combobox hacia producto, catalogo, WhatsApp o URL personalizada.
+- Footer: texto de marca, direccion, telefono, WhatsApp y redes sociales.
+
+Si Supabase no esta configurado, el panel funciona en modo demo con `localStorage`.
 
 ## Despliegue en GitHub Pages
 
