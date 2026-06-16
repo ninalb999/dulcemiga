@@ -18,6 +18,13 @@ export type Filling = {
   color: string;
 };
 
+export type Dough = {
+  id: string;
+  name: string;
+  description: string;
+  color: string;
+};
+
 export type CarouselSlide = {
   id: string;
   title: string;
@@ -43,7 +50,9 @@ export type OrderPayload = {
   full_name: string;
   phone: string;
   product: string;
-  filling: string;
+  filling?: string;
+  fillings: string[];
+  dough: string;
   portions: string;
   delivery_mode: string;
   delivery_date: string;

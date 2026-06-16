@@ -442,11 +442,43 @@ h3 {
   gap: 12px;
 }
 
+.flavor-groups {
+  display: grid;
+  gap: 12px;
+  justify-items: end;
+}
+
 .flavor-list span {
   border-radius: 999px;
   padding: 14px 18px;
   color: var(--coffee);
   font-weight: 850;
+}
+
+.compact-process {
+  padding-top: clamp(28px, 5vw, 52px);
+  padding-bottom: clamp(28px, 5vw, 52px);
+}
+
+.compact-process .section-heading {
+  margin-bottom: 18px;
+}
+
+.compact-process .flow-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.compact-process .flow-step {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 16px;
+}
+
+.compact-process .flow-step h3 {
+  margin: 0;
+  font-size: 1rem;
 }
 
 .flow-grid {
@@ -639,6 +671,30 @@ h3 {
 .reserve-product-grid span {
   color: rgba(36, 24, 18, 0.68);
   font-size: 0.9rem;
+}
+
+.checkbox-field {
+  display: grid;
+  gap: 10px;
+}
+
+.checkbox-field > span {
+  color: var(--coffee);
+  font-weight: 850;
+}
+
+.checkbox-field small {
+  color: rgba(61, 35, 21, 0.68);
+  font-weight: 800;
+}
+
+.flavor-check-grid label {
+  align-items: center;
+}
+
+.flavor-check-grid input:disabled + .color-dot,
+.flavor-check-grid input:disabled ~ * {
+  opacity: 0.45;
 }
 
 .reservation-summary {
@@ -1002,6 +1058,14 @@ footer small {
   .stepper-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .flavor-groups {
+    justify-items: start;
+  }
+
+  .compact-process .flow-step {
+    grid-template-columns: auto auto 1fr;
   }
 
   .primary-button,

@@ -18,10 +18,10 @@ import {
 } from 'lucide-react';
 import logo from './assets/logo-dulce-miga.jpg';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
-import type { CarouselSlide, Filling, FooterConfig, OrderPayload, Product } from './types';
+import type { CarouselSlide, Dough, Filling, FooterConfig, OrderPayload, Product } from './types';
 
 type DataStatus = 'idle' | 'loading' | 'success' | 'error';
-type AdminTab = 'catalogo' | 'rellenos' | 'carrusel' | 'footer' | 'pedidos';
+type AdminTab = 'catalogo' | 'rellenos' | 'masas' | 'carrusel' | 'footer' | 'pedidos';
 
 const ADMIN_EMAIL = 'admin@gmail.com';
 const ADMIN_PASSWORD = '12345678';
@@ -56,6 +56,27 @@ const defaultFillings: Filling[] = [
     description: 'Relleno tradicional, intenso y de alta aceptacion.',
     extra_price: 0,
     color: '#6f3e20',
+  },
+];
+
+const defaultDoughs: Dough[] = [
+  {
+    id: 'masa-vainilla',
+    name: 'Vainilla',
+    description: 'Masa clasica suave para tortas tradicionales y decoracion vintage.',
+    color: '#ead2a8',
+  },
+  {
+    id: 'masa-chocolate',
+    name: 'Chocolate',
+    description: 'Masa de cacao para pedidos con sabor intenso y familiar.',
+    color: '#6f3e20',
+  },
+  {
+    id: 'masa-naranja',
+    name: 'Naranja',
+    description: 'Masa aromatica y fresca para celebraciones de dia.',
+    color: '#d88b3d',
   },
 ];
 
@@ -132,6 +153,8 @@ const initialOrder: OrderPayload = {
   phone: '',
   product: '',
   filling: '',
+  fillings: [],
+  dough: '',
   portions: '',
   delivery_mode: 'Delivery',
   delivery_date: '',
@@ -156,6 +179,13 @@ const emptyFilling: Filling = {
   description: '',
   extra_price: 0,
   color: '#6f3e20',
+};
+
+const emptyDough: Dough = {
+  id: '',
+  name: '',
+  description: '',
+  color: '#ead2a8',
 };
 
 const emptySlide: CarouselSlide = {
@@ -189,6 +219,23 @@ const saveLocal = (key: string, value: unknown) => {
   localStorage.setItem(key, JSON.stringify(value));
 };
 
+const getOrderFillings = (payload: Partial<OrderPayload>) => {
+  if (payload.fillings?.length) return payload.fillings;
+  if (!payload.filling) return [];
+  return payload.filling.split(',').map((item) => item.trim()).filter(Boolean);
+};
+
+const normalizeOrder = (payload: Partial<OrderPayload>): OrderPayload => {
+  const fillings = getOrderFillings(payload);
+  return {
+    ...initialOrder,
+    ...payload,
+    fillings,
+    filling: payload.filling ?? fillings.join(', '),
+    dough: payload.dough ?? '',
+  };
+};
+
 const hasSupabaseSession = async () => {
   if (!supabase) return false;
   const { data } = await supabase.auth.getSession();
@@ -214,6 +261,7 @@ function App() {
   const isCatalogRoute = normalizedPathname === catalogPath;
   const [products, setProducts] = useState<Product[]>(defaultProducts);
   const [fillings, setFillings] = useState<Filling[]>(defaultFillings);
+  const [doughs, setDoughs] = useState<Dough[]>(defaultDoughs);
   const [slides, setSlides] = useState<CarouselSlide[]>(defaultSlides);
   const [footer, setFooter] = useState<FooterConfig>(defaultFooter);
   const [order, setOrder] = useState<OrderPayload>(initialOrder);
@@ -230,6 +278,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<AdminTab>('catalogo');
   const [productForm, setProductForm] = useState<Product>(emptyProduct);
   const [fillingForm, setFillingForm] = useState<Filling>(emptyFilling);
+  const [doughForm, setDoughForm] = useState<Dough>(emptyDough);
   const [slideForm, setSlideForm] = useState<CarouselSlide>(emptySlide);
 
   const activeSlides = slides.filter((slide) => slide.is_active);
@@ -263,11 +312,14 @@ function App() {
 
   const buildOrderForProduct = (product: Product) => {
     const productFillings = fillings.filter((filling) => product.filling_ids.includes(filling.id));
+    const selectedFillings = productFillings.slice(0, 1).map((filling) => filling.name);
     return {
       ...order,
       product: product.name,
       portions: product.portions,
-      filling: productFillings[0]?.name ?? fillings[0]?.name ?? '',
+      fillings: selectedFillings,
+      filling: selectedFillings.join(', '),
+      dough: order.dough || doughs[0]?.name || '',
     };
   };
 
@@ -283,7 +335,8 @@ function App() {
       `WhatsApp del cliente: ${payload.phone || 'Sin WhatsApp'}`,
       `Producto: ${payload.product || 'Sin seleccionar'}`,
       `Precio referencial: ${product ? `Bs. ${product.price}` : 'Por confirmar'}`,
-      `Relleno: ${payload.filling || 'Sin seleccionar'}`,
+      `Masa: ${payload.dough || 'Sin seleccionar'}`,
+      `Rellenos: ${getOrderFillings(payload).join(', ') || 'Sin seleccionar'}`,
       `Porciones: ${payload.portions || 'Sin definir'}`,
       `Modalidad: ${payload.delivery_mode || 'Por coordinar'}`,
       `Fecha requerida: ${payload.delivery_date || 'Por confirmar'}`,
@@ -298,24 +351,27 @@ function App() {
       if (!supabase) {
         setProducts(readLocal('dulce-miga-products', defaultProducts));
         setFillings(readLocal('dulce-miga-fillings', defaultFillings));
+        setDoughs(readLocal('dulce-miga-doughs', defaultDoughs));
         setSlides(readLocal('dulce-miga-slides', defaultSlides));
         setFooter(readLocal('dulce-miga-footer', defaultFooter));
-        setSavedOrders(readLocal('dulce-miga-orders', []));
+        setSavedOrders(readLocal<Partial<OrderPayload>[]>('dulce-miga-orders', []).map(normalizeOrder));
         return;
       }
 
-      const [productResult, fillingResult, slideResult, footerResult] = await Promise.all([
+      const [productResult, fillingResult, doughResult, slideResult, footerResult] = await Promise.all([
         supabase.from('products').select('*').order('created_at', { ascending: true }),
         supabase.from('fillings').select('*').order('created_at', { ascending: true }),
+        supabase.from('doughs').select('*').order('created_at', { ascending: true }),
         supabase.from('carousel_slides').select('*').order('created_at', { ascending: true }),
         supabase.from('footer_config').select('*').limit(1).maybeSingle(),
       ]);
 
       if (!productResult.error && productResult.data?.length) setProducts(productResult.data as Product[]);
       if (!fillingResult.error && fillingResult.data?.length) setFillings(fillingResult.data as Filling[]);
+      if (!doughResult.error && doughResult.data?.length) setDoughs(doughResult.data as Dough[]);
       if (!slideResult.error && slideResult.data?.length) setSlides(slideResult.data as CarouselSlide[]);
       if (!footerResult.error && footerResult.data) setFooter(footerResult.data as FooterConfig);
-      setSavedOrders(readLocal('dulce-miga-orders', []));
+      setSavedOrders(readLocal<Partial<OrderPayload>[]>('dulce-miga-orders', []).map(normalizeOrder));
     };
 
     loadData().catch((error) => console.error(error));
@@ -333,7 +389,7 @@ function App() {
     const loadSavedOrders = async () => {
       if (!adminAuthed || !supabase) return;
       const { data, error } = await supabase.from('orders').select('*').order('created_at', { ascending: false });
-      if (!error && data) setSavedOrders(data as OrderPayload[]);
+      if (!error && data) setSavedOrders((data as Partial<OrderPayload>[]).map(normalizeOrder));
     };
 
     loadSavedOrders().catch((error) => console.error(error));
@@ -345,21 +401,39 @@ function App() {
         ...current,
         product: products[0].name,
         portions: products[0].portions,
+        fillings: fillings[0]?.name ? [fillings[0].name] : [],
         filling: fillings[0]?.name ?? '',
+        dough: doughs[0]?.name ?? '',
       }));
     }
-  }, [fillings, order.product, products]);
+  }, [doughs, fillings, order.product, products]);
 
   const isOrderReady = () =>
-    Boolean(order.product && order.filling && order.portions && order.full_name && order.phone && order.delivery_date);
+    Boolean(order.product && order.dough && order.fillings.length && order.portions && order.full_name && order.phone && order.delivery_date);
 
   const updateOrder = (field: keyof OrderPayload, value: string) => {
     setOrder((current) => ({ ...current, [field]: value }));
   };
 
+  const toggleOrderFilling = (name: string) => {
+    setOrder((current) => {
+      const exists = current.fillings.includes(name);
+      const nextFillings = exists
+        ? current.fillings.filter((item) => item !== name)
+        : current.fillings.length < 2
+          ? [...current.fillings, name]
+          : current.fillings;
+      return {
+        ...current,
+        fillings: nextFillings,
+        filling: nextFillings.join(', '),
+      };
+    });
+  };
+
   const canGoNext = () => {
     if (orderStep === 0) return Boolean(order.product);
-    if (orderStep === 1) return Boolean(order.filling && order.portions);
+    if (orderStep === 1) return Boolean(order.dough && order.fillings.length && order.fillings.length <= 2 && order.portions);
     if (orderStep === 2) return Boolean(order.full_name && order.phone && order.delivery_date);
     return isOrderReady();
   };
@@ -535,6 +609,45 @@ function App() {
     }
   };
 
+  const saveDough = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const dough = { ...doughForm, id: doughForm.id || slug(doughForm.name) };
+    const next = doughs.some((item) => item.id === dough.id)
+      ? doughs.map((item) => (item.id === dough.id ? dough : item))
+      : [...doughs, dough];
+    try {
+      if (supabase) {
+        await requireSupabaseSession();
+        const { error } = await supabase.from('doughs').upsert(dough);
+        if (error) throw error;
+      } else {
+        saveLocal('dulce-miga-doughs', next);
+      }
+      setDoughs(next);
+      setDoughForm(emptyDough);
+    } catch (error) {
+      console.error(error);
+      alert('No se guardo la masa en Supabase.');
+    }
+  };
+
+  const deleteDough = async (id: string) => {
+    const next = doughs.filter((item) => item.id !== id);
+    try {
+      if (supabase) {
+        await requireSupabaseSession();
+        const { error } = await supabase.from('doughs').delete().eq('id', id);
+        if (error) throw error;
+      } else {
+        saveLocal('dulce-miga-doughs', next);
+      }
+      setDoughs(next);
+    } catch (error) {
+      console.error(error);
+      alert('No se elimino la masa en Supabase.');
+    }
+  };
+
   const saveSlide = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const slide = { ...slideForm, id: slideForm.id || slug(slideForm.title), image_url: slideForm.image_url || logo };
@@ -595,16 +708,20 @@ function App() {
     event.preventDefault();
     if (!canGoNext()) return;
 
-    const payload = { ...order };
+    const payload = normalizeOrder({ ...order, filling: order.fillings.join(', ') });
+    const dbPayload = {
+      ...payload,
+      delivery_date: payload.delivery_date || null,
+    };
     const whatsappWindow = window.open('', '_blank', 'noopener,noreferrer');
     setOrderStatus('loading');
 
     try {
       let savedInSupabase = false;
       if (supabase) {
-        const { error } = await supabase.from('orders').insert(payload);
-        if (!error) savedInSupabase = true;
-        if (error) console.error(error);
+        const { error } = await supabase.from('orders').insert(dbPayload);
+        if (error) throw error;
+        savedInSupabase = true;
       }
 
       const localOrders = readLocal<OrderPayload[]>('dulce-miga-orders', []);
@@ -652,7 +769,7 @@ function App() {
             <form onSubmit={loginAdmin}>
               <img src={logo} alt="" />
               <h1>Panel administrativo</h1>
-              <p>Gestiona catalogo, carrusel, rellenos y footer de Dulce Miga.</p>
+              <p>Gestiona catalogo, carrusel, sabores, footer y pedidos de Dulce Miga.</p>
               <label>
                 Correo
                 <input name="email" defaultValue={ADMIN_EMAIL} type="email" required />
@@ -674,6 +791,7 @@ function App() {
               {[
                 ['catalogo', 'Catalogo de tortas'],
                 ['rellenos', 'Rellenos'],
+                ['masas', 'Masas'],
                 ['carrusel', 'Carrusel'],
                 ['footer', 'Footer y redes'],
                 ['pedidos', 'Pedidos'],
@@ -794,6 +912,39 @@ function App() {
                 </AdminPanel>
               )}
 
+              {activeTab === 'masas' && (
+                <AdminPanel title="Masas" description="Administra los sabores de masa disponibles para cada pedido.">
+                  <form className="admin-form" onSubmit={saveDough}>
+                    <label>
+                      Nombre
+                      <input value={doughForm.name} onChange={(e) => setDoughForm({ ...doughForm, name: e.target.value })} required />
+                    </label>
+                    <label>
+                      Color
+                      <input type="color" value={doughForm.color} onChange={(e) => setDoughForm({ ...doughForm, color: e.target.value })} />
+                    </label>
+                    <label className="full-row">
+                      Descripcion
+                      <textarea value={doughForm.description} onChange={(e) => setDoughForm({ ...doughForm, description: e.target.value })} />
+                    </label>
+                    <button className="primary-button" type="submit"><Save size={17} /> Guardar masa</button>
+                  </form>
+                  <CrudList>
+                    {doughs.map((dough) => (
+                      <article key={dough.id}>
+                        <span className="color-dot" style={{ background: dough.color }} />
+                        <div>
+                          <strong>{dough.name}</strong>
+                          <span>{dough.description || 'Sin descripcion'}</span>
+                        </div>
+                        <button type="button" onClick={() => setDoughForm(dough)}><Edit3 size={16} /></button>
+                        <button type="button" onClick={() => deleteDough(dough.id)}><Trash2 size={16} /></button>
+                      </article>
+                    ))}
+                  </CrudList>
+                </AdminPanel>
+              )}
+
               {activeTab === 'carrusel' && (
                 <AdminPanel title="Carrusel principal" description="Sube imagenes y define a donde dirige cada slide.">
                   <form className="admin-form" onSubmit={saveSlide}>
@@ -892,7 +1043,7 @@ function App() {
                               {item.phone} | {item.delivery_date || 'sin fecha'} | {item.delivery_mode}
                             </span>
                             <span>
-                              Relleno: {item.filling || 'sin definir'} | Porciones: {item.portions || 'sin definir'}
+                              Masa: {item.dough || 'sin definir'} | Rellenos: {getOrderFillings(item).join(', ') || 'sin definir'} | Porciones: {item.portions || 'sin definir'}
                             </span>
                             <span>{item.message || 'Sin detalles adicionales'}</span>
                           </div>
@@ -1094,30 +1245,38 @@ function App() {
 
       <section className="flavor-band" id="rellenos">
         <div>
-          <p className="eyebrow">Rellenos</p>
+          <p className="eyebrow">Rellenos y masas</p>
           <h2>Sabores que hacen memorable cada torta</h2>
         </div>
-        <div className="flavor-list">
-          {fillings.map((filling) => (
-            <span key={filling.id} style={{ background: filling.color }}>
-              {filling.name}
-            </span>
-          ))}
+        <div className="flavor-groups">
+          <div className="flavor-list">
+            {fillings.map((filling) => (
+              <span key={filling.id} style={{ background: filling.color }}>
+                Relleno {filling.name}
+              </span>
+            ))}
+          </div>
+          <div className="flavor-list">
+            {doughs.map((dough) => (
+              <span key={dough.id} style={{ background: dough.color }}>
+                Masa {dough.name}
+              </span>
+            ))}
+          </div>
         </div>
       </section>
 
-      <section className="section service-public" id="servicio">
+      <section className="section service-public compact-process" id="servicio">
         <div className="section-heading">
           <p className="eyebrow">Como funciona</p>
-          <h2>Del mensaje a la entrega</h2>
+          <h2>Pedido en tres pasos</h2>
         </div>
         <div className="flow-grid">
-          {['Contactas por redes', 'Recibes asesoria', 'Confirmas el pago', 'Preparamos tu pedido', 'Coordinamos entrega', 'Seguimiento postventa'].map((step, index) => (
+          {['Elige producto y sabores', 'Confirma datos y fecha', 'Envia el resumen por WhatsApp'].map((step, index) => (
             <article className="flow-step" key={step}>
               <strong>{String(index + 1).padStart(2, '0')}</strong>
               <Check size={20} />
               <h3>{step}</h3>
-              <p>Proceso claro para reducir errores y cuidar la experiencia de compra.</p>
             </article>
           ))}
         </div>
@@ -1129,11 +1288,11 @@ function App() {
           <h2>Cotiza tu torta</h2>
           <p>
             Completa la reserva paso a paso. Al finalizar se guardan tus datos y se abre WhatsApp
-            con el resumen exacto del producto, relleno, fecha y detalles que escribiste.
+            con el resumen exacto del producto, masa, rellenos, fecha y detalles que escribiste.
           </p>
           <ol className="order-process-list">
             <li>Selecciona el producto del catalogo.</li>
-            <li>Define relleno, porciones, decoracion y toppers.</li>
+            <li>Define masa, hasta dos rellenos, porciones, decoracion y toppers.</li>
             <li>Registra nombre, WhatsApp, fecha y modalidad.</li>
             <li>Confirma y envia el pedido al WhatsApp de Dulce Miga.</li>
           </ol>
@@ -1169,11 +1328,14 @@ function App() {
                     key={product.id}
                     onClick={() => {
                       const productFillings = fillings.filter((filling) => product.filling_ids.includes(filling.id));
+                      const selectedFillings = productFillings.slice(0, 1).map((filling) => filling.name);
                       setOrder((current) => ({
                         ...current,
                         product: product.name,
                         portions: product.portions,
-                        filling: productFillings[0]?.name ?? fillings[0]?.name ?? '',
+                        fillings: selectedFillings,
+                        filling: selectedFillings.join(', '),
+                        dough: current.dough || doughs[0]?.name || '',
                       }));
                     }}
                     type="button"
@@ -1195,9 +1357,10 @@ function App() {
               </div>
               <div className="step-fields">
                 <label>
-                  Relleno
-                  <select value={order.filling} onChange={(e) => updateOrder('filling', e.target.value)}>
-                    {availableFillings.map((filling) => <option key={filling.id}>{filling.name}</option>)}
+                  Sabor de la masa
+                  <select value={order.dough} onChange={(e) => updateOrder('dough', e.target.value)}>
+                    <option value="">Seleccionar masa</option>
+                    {doughs.map((dough) => <option key={dough.id}>{dough.name}</option>)}
                   </select>
                 </label>
                 <label>
@@ -1208,6 +1371,28 @@ function App() {
                     onInput={(e) => updateOrder('portions', e.currentTarget.value)}
                   />
                 </label>
+                <div className="full-row checkbox-field">
+                  <span>Rellenos incluidos (elige hasta 2)</span>
+                  <div className="check-grid flavor-check-grid">
+                    {availableFillings.map((filling) => {
+                      const checked = order.fillings.includes(filling.name);
+                      const disabled = !checked && order.fillings.length >= 2;
+                      return (
+                        <label key={filling.id}>
+                          <input
+                            checked={checked}
+                            disabled={disabled}
+                            type="checkbox"
+                            onChange={() => toggleOrderFilling(filling.name)}
+                          />
+                          <span className="color-dot" style={{ background: filling.color }} />
+                          {filling.name}
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <small>{order.fillings.length}/2 rellenos seleccionados</small>
+                </div>
                 <label className="full-row">
                   Decoracion, dedicatoria, toppers o alergias
                   <textarea
@@ -1275,7 +1460,8 @@ function App() {
               </div>
               <dl className="reservation-summary">
                 <div><dt>Producto</dt><dd>{order.product || 'Sin seleccionar'}</dd></div>
-                <div><dt>Relleno</dt><dd>{order.filling || 'Sin seleccionar'}</dd></div>
+                <div><dt>Masa</dt><dd>{order.dough || 'Sin seleccionar'}</dd></div>
+                <div><dt>Rellenos</dt><dd>{order.fillings.join(', ') || 'Sin seleccionar'}</dd></div>
                 <div><dt>Porciones</dt><dd>{order.portions || 'Sin definir'}</dd></div>
                 <div><dt>Fecha</dt><dd>{order.delivery_date || 'Por confirmar'}</dd></div>
                 <div><dt>Modalidad</dt><dd>{order.delivery_mode}</dd></div>
