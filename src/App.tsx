@@ -148,6 +148,18 @@ const defaultFooter: FooterConfig = {
   copyright: 'Dulce Miga. Todos los derechos reservados.',
 };
 
+const emptyFooter: FooterConfig = {
+  brand_text: '',
+  address: '',
+  phone: '',
+  whatsapp: '',
+  facebook: '',
+  instagram: '',
+  tiktok: '',
+  copyright: '',
+  schedule: '',
+};
+
 const initialOrder: OrderPayload = {
   full_name: '',
   phone: '',
@@ -251,7 +263,7 @@ const requireSupabaseSession = async () => {
 const getTargetHref = (slide: CarouselSlide, footer: FooterConfig) => {
   if (slide.target_type === 'Producto') return productHref(slide.target_value);
   if (slide.target_type === 'Catalogo') return catalogHref;
-  if (slide.target_type === 'WhatsApp') return `https://wa.me/${footer.whatsapp || WHATSAPP_NUMBER}`;
+  if (slide.target_type === 'WhatsApp') return footer.whatsapp ? `https://wa.me/${footer.whatsapp}` : '#pedido';
   return slide.target_value || '#inicio';
 };
 
@@ -259,11 +271,11 @@ function App() {
   const normalizedPathname = window.location.pathname.replace(/\/$/, '') || '/';
   const isAdminRoute = normalizedPathname === adminPath;
   const isCatalogRoute = normalizedPathname === catalogPath;
-  const [products, setProducts] = useState<Product[]>(defaultProducts);
-  const [fillings, setFillings] = useState<Filling[]>(defaultFillings);
-  const [doughs, setDoughs] = useState<Dough[]>(defaultDoughs);
-  const [slides, setSlides] = useState<CarouselSlide[]>(defaultSlides);
-  const [footer, setFooter] = useState<FooterConfig>(defaultFooter);
+  const [products, setProducts] = useState<Product[]>(isSupabaseConfigured ? [] : defaultProducts);
+  const [fillings, setFillings] = useState<Filling[]>(isSupabaseConfigured ? [] : defaultFillings);
+  const [doughs, setDoughs] = useState<Dough[]>(isSupabaseConfigured ? [] : defaultDoughs);
+  const [slides, setSlides] = useState<CarouselSlide[]>(isSupabaseConfigured ? [] : defaultSlides);
+  const [footer, setFooter] = useState<FooterConfig>(isSupabaseConfigured ? emptyFooter : defaultFooter);
   const [order, setOrder] = useState<OrderPayload>(initialOrder);
   const [orderStatus, setOrderStatus] = useState<DataStatus>('idle');
   const [orderStep, setOrderStep] = useState(0);
@@ -282,7 +294,13 @@ function App() {
   const [slideForm, setSlideForm] = useState<CarouselSlide>(emptySlide);
 
   const activeSlides = slides.filter((slide) => slide.is_active);
-  const firstSlide = activeSlides[0] ?? defaultSlides[0];
+  const firstSlide = activeSlides[0];
+  const footerLinks = [
+    footer.facebook ? { href: footer.facebook, label: 'Facebook', icon: <Facebook size={17} /> } : null,
+    footer.instagram ? { href: footer.instagram, label: 'Instagram', icon: <Instagram size={17} /> } : null,
+    footer.tiktok ? { href: footer.tiktok, label: 'TikTok', icon: <Sparkles size={17} /> } : null,
+    footer.whatsapp ? { href: `https://wa.me/${footer.whatsapp}`, label: 'WhatsApp', icon: <MessageCircle size={17} /> } : null,
+  ].filter(Boolean) as { href: string; label: string; icon: React.ReactNode }[];
   const selectedProduct = products.find((product) => product.name === order.product);
   const availableFillings = selectedProduct
     ? fillings.filter((filling) => selectedProduct.filling_ids.includes(filling.id))
@@ -343,7 +361,8 @@ function App() {
       `Detalles: ${payload.message || 'Sin detalle adicional'}`,
     ];
 
-    return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(lines.join('\n'))}`;
+    if (!footer.whatsapp) return '';
+    return `https://wa.me/${footer.whatsapp}?text=${encodeURIComponent(lines.join('\n'))}`;
   };
 
   useEffect(() => {
@@ -366,11 +385,11 @@ function App() {
         supabase.from('footer_config').select('*').limit(1).maybeSingle(),
       ]);
 
-      if (!productResult.error && productResult.data?.length) setProducts(productResult.data as Product[]);
-      if (!fillingResult.error && fillingResult.data?.length) setFillings(fillingResult.data as Filling[]);
-      if (!doughResult.error && doughResult.data?.length) setDoughs(doughResult.data as Dough[]);
-      if (!slideResult.error && slideResult.data?.length) setSlides(slideResult.data as CarouselSlide[]);
-      if (!footerResult.error && footerResult.data) setFooter(footerResult.data as FooterConfig);
+      if (!productResult.error) setProducts((productResult.data ?? []) as Product[]);
+      if (!fillingResult.error) setFillings((fillingResult.data ?? []) as Filling[]);
+      if (!doughResult.error) setDoughs((doughResult.data ?? []) as Dough[]);
+      if (!slideResult.error) setSlides((slideResult.data ?? []) as CarouselSlide[]);
+      if (!footerResult.error) setFooter(footerResult.data ? (footerResult.data as FooterConfig) : emptyFooter);
       setSavedOrders(readLocal<Partial<OrderPayload>[]>('dulce-miga-orders', []).map(normalizeOrder));
     };
 
@@ -707,6 +726,10 @@ function App() {
   const submitOrder = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canGoNext()) return;
+    if (!footer.whatsapp) {
+      setOrderStatus('error');
+      return;
+    }
 
     const payload = normalizeOrder({ ...order, filling: order.fillings.join(', ') });
     const dbPayload = {
@@ -1155,7 +1178,11 @@ function App() {
                 </article>
               ))
             ) : (
-              <p className="empty-state full-row">No hay productos que coincidan con los filtros seleccionados.</p>
+              <p className="empty-state full-row">
+                {products.length
+                  ? 'No hay productos que coincidan con los filtros seleccionados.'
+                  : 'Aun no hay productos cargados desde admin.'}
+              </p>
             )}
           </div>
         </section>
@@ -1163,17 +1190,20 @@ function App() {
         <footer>
           <div>
             <img src={logo} alt="" />
-            <p>{footer.brand_text}</p>
+            {footer.brand_text && <p>{footer.brand_text}</p>}
           </div>
-          <p>{footer.address}</p>
-          <p>{footer.phone || WHATSAPP_DISPLAY}</p>
-          <div className="social-links">
-            <a href={footer.facebook} target="_blank" rel="noreferrer"><Facebook size={17} /> Facebook</a>
-            <a href={footer.instagram} target="_blank" rel="noreferrer"><Instagram size={17} /> Instagram</a>
-            <a href={footer.tiktok} target="_blank" rel="noreferrer"><Sparkles size={17} /> TikTok</a>
-            <a href={`https://wa.me/${footer.whatsapp || WHATSAPP_NUMBER}`} target="_blank" rel="noreferrer"><MessageCircle size={17} /> WhatsApp</a>
-          </div>
-          <small>{footer.copyright}</small>
+          {footer.address && <p>{footer.address}</p>}
+          {footer.phone && <p>{footer.phone}</p>}
+          {footerLinks.length > 0 && (
+            <div className="social-links">
+              {footerLinks.map((link) => (
+                <a href={link.href} key={link.label} target="_blank" rel="noreferrer">
+                  {link.icon} {link.label}
+                </a>
+              ))}
+            </div>
+          )}
+          {footer.copyright && <small>{footer.copyright}</small>}
         </footer>
       </main>
     );
@@ -1195,39 +1225,49 @@ function App() {
 
       <section className="hero bakery-hero" id="inicio">
         <div className="hero-copy">
-          <p className="eyebrow">Pasteleria artesanal por pedido</p>
-          <h1>Dulces momentos hechos a tu medida</h1>
-          <p>
-            Tortas clasicas, decoracion vintage, toppers personalizados y rellenos de maracuya,
-            menta o chocolate para celebraciones con sabor familiar.
-          </p>
+          <p className="eyebrow">Dulce Miga</p>
+          <h1>{firstSlide?.title || 'Catalogo pendiente de configurar'}</h1>
+          <p>{firstSlide?.subtitle || footer.brand_text || 'Carga productos y carrusel desde el panel administrativo.'}</p>
           <div className="hero-actions">
             <a className="primary-button" href="#pedido"><Send size={18} /> Cotizar por WhatsApp</a>
             <a className="secondary-button" href={catalogHref}>Ver catalogo</a>
           </div>
         </div>
-        <article className="carousel-card">
-          <img src={firstSlide.image_url || logo} alt={firstSlide.title} />
-          <div>
-            <span>Carrusel Dulce Miga</span>
-            <h2>{firstSlide.title}</h2>
-            <p>{firstSlide.subtitle}</p>
-            <a className="secondary-button" href={getTargetHref(firstSlide, footer)}>Ver detalle</a>
-          </div>
-        </article>
+        {firstSlide ? (
+          <article className="carousel-card">
+            <img src={firstSlide.image_url || logo} alt={firstSlide.title} />
+            <div>
+              <span>Carrusel Dulce Miga</span>
+              <h2>{firstSlide.title}</h2>
+              <p>{firstSlide.subtitle}</p>
+              <a className="secondary-button" href={getTargetHref(firstSlide, footer)}>Ver detalle</a>
+            </div>
+          </article>
+        ) : (
+          <article className="carousel-card empty-state">
+            <img src={logo} alt="" />
+            <div>
+              <span>Sin carrusel activo</span>
+              <h2>Agrega slides desde admin</h2>
+              <p>Los datos visibles se cargaran desde Supabase cuando los registres.</p>
+            </div>
+          </article>
+        )}
       </section>
 
-      <section className="carousel-strip" aria-label="Promociones">
-        {activeSlides.map((slide) => (
-          <a className="mini-slide" href={getTargetHref(slide, footer)} key={slide.id}>
-            <img src={slide.image_url || logo} alt="" />
-            <div>
-              <strong>{slide.title}</strong>
-              <span>{slide.target_type}</span>
-            </div>
-          </a>
-        ))}
-      </section>
+      {activeSlides.length > 0 && (
+        <section className="carousel-strip" aria-label="Promociones">
+          {activeSlides.map((slide) => (
+            <a className="mini-slide" href={getTargetHref(slide, footer)} key={slide.id}>
+              <img src={slide.image_url || logo} alt="" />
+              <div>
+                <strong>{slide.title}</strong>
+                <span>{slide.target_type}</span>
+              </div>
+            </a>
+          ))}
+        </section>
+      )}
 
       <section className="section catalog-entry" id="catalogo">
         <div className="section-heading">
@@ -1250,18 +1290,26 @@ function App() {
         </div>
         <div className="flavor-groups">
           <div className="flavor-list">
-            {fillings.map((filling) => (
-              <span key={filling.id} style={{ background: filling.color }}>
-                Relleno {filling.name}
-              </span>
-            ))}
+            {fillings.length ? (
+              fillings.map((filling) => (
+                <span key={filling.id} style={{ background: filling.color }}>
+                  Relleno {filling.name}
+                </span>
+              ))
+            ) : (
+              <p className="empty-state">Aun no hay rellenos cargados.</p>
+            )}
           </div>
           <div className="flavor-list">
-            {doughs.map((dough) => (
-              <span key={dough.id} style={{ background: dough.color }}>
-                Masa {dough.name}
-              </span>
-            ))}
+            {doughs.length ? (
+              doughs.map((dough) => (
+                <span key={dough.id} style={{ background: dough.color }}>
+                  Masa {dough.name}
+                </span>
+              ))
+            ) : (
+              <p className="empty-state">Aun no hay masas cargadas.</p>
+            )}
           </div>
         </div>
       </section>
@@ -1296,7 +1344,7 @@ function App() {
             <li>Registra nombre, WhatsApp, fecha y modalidad.</li>
             <li>Confirma y envia el pedido al WhatsApp de Dulce Miga.</li>
           </ol>
-          <p className="whatsapp-contact">WhatsApp de pedidos: {footer.phone || WHATSAPP_DISPLAY}</p>
+          {footer.phone && <p className="whatsapp-contact">WhatsApp de pedidos: {footer.phone}</p>}
           <div className="supabase-note">Supabase: {isSupabaseConfigured ? 'conectado' : 'modo demo local'}</div>
         </div>
 
@@ -1322,29 +1370,33 @@ function App() {
                 <h3>Elige el producto para tu reserva</h3>
               </div>
               <div className="reserve-product-grid">
-                {products.map((product) => (
-                  <button
-                    className={order.product === product.name ? 'selected' : ''}
-                    key={product.id}
-                    onClick={() => {
-                      const productFillings = fillings.filter((filling) => product.filling_ids.includes(filling.id));
-                      const selectedFillings = productFillings.slice(0, 1).map((filling) => filling.name);
-                      setOrder((current) => ({
-                        ...current,
-                        product: product.name,
-                        portions: product.portions,
-                        fillings: selectedFillings,
-                        filling: selectedFillings.join(', '),
-                        dough: current.dough || doughs[0]?.name || '',
-                      }));
-                    }}
-                    type="button"
-                  >
-                    <img src={product.image_url || logo} alt="" />
-                    <strong>{product.name}</strong>
-                    <span>Bs. {product.price} - {product.portions}</span>
-                  </button>
-                ))}
+                {products.length ? (
+                  products.map((product) => (
+                    <button
+                      className={order.product === product.name ? 'selected' : ''}
+                      key={product.id}
+                      onClick={() => {
+                        const productFillings = fillings.filter((filling) => product.filling_ids.includes(filling.id));
+                        const selectedFillings = productFillings.slice(0, 1).map((filling) => filling.name);
+                        setOrder((current) => ({
+                          ...current,
+                          product: product.name,
+                          portions: product.portions,
+                          fillings: selectedFillings,
+                          filling: selectedFillings.join(', '),
+                          dough: current.dough || doughs[0]?.name || '',
+                        }));
+                      }}
+                      type="button"
+                    >
+                      <img src={product.image_url || logo} alt="" />
+                      <strong>{product.name}</strong>
+                      <span>Bs. {product.price} - {product.portions}</span>
+                    </button>
+                  ))
+                ) : (
+                  <p className="empty-state full-row">Aun no hay productos cargados desde admin.</p>
+                )}
               </div>
             </div>
           )}
@@ -1483,11 +1535,14 @@ function App() {
                 Siguiente
               </button>
             ) : (
-              <button className="primary-button" type="submit" disabled={orderStatus === 'loading'}>
+              <button className="primary-button" type="submit" disabled={orderStatus === 'loading' || !footer.whatsapp}>
                 <Send size={18} /> {orderStatus === 'loading' ? 'Enviando...' : 'Registrar y enviar por WhatsApp'}
               </button>
             )}
           </div>
+          {!footer.whatsapp && (
+            <p className="form-status error">Configura el WhatsApp del negocio desde el panel admin para recibir pedidos.</p>
+          )}
           {!canGoNext() && orderStep < orderSteps.length - 1 && (
             <p className="form-status error">Completa los datos de este paso para continuar.</p>
           )}
@@ -1499,17 +1554,20 @@ function App() {
       <footer>
         <div>
           <img src={logo} alt="" />
-          <p>{footer.brand_text}</p>
+          {footer.brand_text && <p>{footer.brand_text}</p>}
         </div>
-        <p>{footer.address}</p>
-        <p>{footer.phone || WHATSAPP_DISPLAY}</p>
-        <div className="social-links">
-          <a href={footer.facebook} target="_blank" rel="noreferrer"><Facebook size={17} /> Facebook</a>
-          <a href={footer.instagram} target="_blank" rel="noreferrer"><Instagram size={17} /> Instagram</a>
-          <a href={footer.tiktok} target="_blank" rel="noreferrer"><Sparkles size={17} /> TikTok</a>
-          <a href={`https://wa.me/${footer.whatsapp || WHATSAPP_NUMBER}`} target="_blank" rel="noreferrer"><MessageCircle size={17} /> WhatsApp</a>
-        </div>
-        <small>{footer.copyright}</small>
+        {footer.address && <p>{footer.address}</p>}
+        {footer.phone && <p>{footer.phone}</p>}
+        {footerLinks.length > 0 && (
+          <div className="social-links">
+            {footerLinks.map((link) => (
+              <a href={link.href} key={link.label} target="_blank" rel="noreferrer">
+                {link.icon} {link.label}
+              </a>
+            ))}
+          </div>
+        )}
+        {footer.copyright && <small>{footer.copyright}</small>}
       </footer>
     </main>
   );

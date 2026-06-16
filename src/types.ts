@@ -44,6 +44,7 @@ export type FooterConfig = {
   instagram: string;
   tiktok: string;
   copyright: string;
+  schedule?: string;
 };
 
 export type OrderPayload = {
