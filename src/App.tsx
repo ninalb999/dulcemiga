@@ -827,7 +827,7 @@ function App() {
 
   const saveSlide = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const slide = { ...slideForm, id: slideForm.id || slug(slideForm.title), image_url: slideForm.image_url || logo };
+    const slide = { ...slideForm, id: slideForm.id || `slide-${Date.now()}`, image_url: slideForm.image_url || logo };
     const next = slides.some((item) => item.id === slide.id)
       ? slides.map((item) => (item.id === slide.id ? slide : item))
       : [...slides, slide];
@@ -894,7 +894,6 @@ function App() {
       ...payload,
       delivery_date: payload.delivery_date || null,
     };
-    const whatsappWindow = window.open('', '_blank', 'noopener,noreferrer');
     setOrderStatus('loading');
 
     try {
@@ -915,14 +914,9 @@ function App() {
       }
 
       const whatsappUrl = buildWhatsappUrl(payload);
-      if (whatsappWindow) {
-        whatsappWindow.location.href = whatsappUrl;
-      } else {
-        window.location.href = whatsappUrl;
-      }
+      window.location.assign(whatsappUrl);
     } catch (error) {
       console.error(error);
-      if (whatsappWindow) whatsappWindow.close();
       setOrderStatus('error');
     }
   };
@@ -963,7 +957,6 @@ function App() {
                 {loginStatus === 'loading' ? 'Ingresando...' : 'Ingresar'}
               </button>
               {loginError && <p className="form-status error">{loginError}</p>}
-              <small>Supabase: {isSupabaseConfigured ? 'configurado' : 'modo demo local'}</small>
             </form>
           </section>
         ) : (
@@ -1013,7 +1006,7 @@ function App() {
                         </button>
                       </div>
                       {productForm.portion_options.map((option, index) => (
-                        <div className="portion-row" key={`${index}-${option.label}`}>
+                        <div className="portion-row" key={`portion-option-${index}`}>
                           <label>
                             Porciones
                             <input
@@ -1495,8 +1488,7 @@ function App() {
           <article className="carousel-card">
             <img src={firstSlide.image_url || logo} alt={firstSlide.title} />
             <div>
-              <span>Carrusel Dulce Miga</span>
-              <h2>{firstSlide.title}</h2>
+              <span>Promocion destacada</span>
               <p>{firstSlide.subtitle}</p>
               <a className="secondary-button" href={getTargetHref(firstSlide, footer)}>Ver detalle</a>
             </div>
@@ -1601,7 +1593,6 @@ function App() {
             <li>Confirma y envia el pedido al WhatsApp de Dulce Miga.</li>
           </ol>
           {footer.phone && <p className="whatsapp-contact">WhatsApp de pedidos: {footer.phone}</p>}
-          <div className="supabase-note">Supabase: {isSupabaseConfigured ? 'conectado' : 'modo demo local'}</div>
         </div>
 
         <form className="order-form stepper-form" onSubmit={submitOrder}>
